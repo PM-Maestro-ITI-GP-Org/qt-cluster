@@ -144,6 +144,13 @@ export QT_QUICK_BACKEND=\"software\"
 export QQNX_PHYSICAL_SCREEN_SIZE=\"\${QQNX_PHYSICAL_SCREEN_SIZE:-150,90}\"
 export APP_WIDTH=\"\${APP_WIDTH:-1280}\"
 export APP_HEIGHT=\"\${APP_HEIGHT:-720}\"
+# FONTCONFIG_FILE only matters to a Qt built with fontconfig. This one is not
+# -- libQt6Gui links freetype and nothing else -- so it uses the basic font
+# database, which reads QT_QPA_FONTDIR and otherwise looks in a compiled-in
+# /usr/lib/fonts that does not exist here. Without it every glyph is a box:
+#     QFontDatabase: Cannot find font directory /usr/lib/fonts.
+# Both are set so the launcher keeps working if fontconfig is ever enabled.
+export QT_QPA_FONTDIR=\"$DIR/lib/fonts\"
 export FONTCONFIG_FILE=\"$DIR/lib/fonts/fonts.conf\"
 exec \"$DIR/appCluster\" \"\$@\"
 "
