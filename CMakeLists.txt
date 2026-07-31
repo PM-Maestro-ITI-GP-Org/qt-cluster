@@ -130,7 +130,16 @@ file(GENERATE
 DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"
 export LD_LIBRARY_PATH=\"$DIR/lib:$LD_LIBRARY_PATH\"
 export QML2_IMPORT_PATH=\"$DIR/qml\"
-export QT_QPA_PLATFORM_PLUGIN_PATH=\"$DIR/plugins\"
+# QT_PLUGIN_PATH is the root Qt appends a category to (plugins/imageformats,
+# plugins/platforms); QT_QPA_PLATFORM_PLUGIN_PATH is the platforms directory
+# itself, not its parent. Setting only the latter, to the parent, found nothing:
+#   qt.qpa.plugin: Could not find the Qt platform plugin \"xcb\" in \"/qt-cluster/plugins\"
+export QT_PLUGIN_PATH=\"$DIR/plugins\"
+export QT_QPA_PLATFORM_PLUGIN_PATH=\"$DIR/plugins/platforms\"
+# Without this Qt falls back to its compiled-in default, which is xcb -- an X11
+# plugin that is neither deployed here nor meaningful on QNX. The QNX platform
+# plugin is libqqnx.so and talks to Screen. Overridable for a host-side run.
+export QT_QPA_PLATFORM=\"\${QT_QPA_PLATFORM:-qnx}\"
 export QT_QUICK_BACKEND=\"software\"
 export QQNX_PHYSICAL_SCREEN_SIZE=\"\${QQNX_PHYSICAL_SCREEN_SIZE:-150,90}\"
 export APP_WIDTH=\"\${APP_WIDTH:-1280}\"
