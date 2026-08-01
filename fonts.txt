@@ -1,1 +1,4 @@
-NotoSans-Regular.ttf
+DejaVuSans.ttf
+DejaVuSans-Bold.ttf
+DejaVuSansMono.ttf
+DejaVuSerif.ttf
