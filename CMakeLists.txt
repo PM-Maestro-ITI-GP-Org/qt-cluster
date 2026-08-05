@@ -9,8 +9,23 @@ set(CMAKE_AUTORCC ON)
 # ============================================
 # Qt6 Library Path Configuration
 # ============================================
+# Qt Creator configures with CMAKE_PREFIX_PATH pointing at the kit's Qt and
+# never sets Qt6_DIR, so derive it from there when it wasn't passed explicitly.
+# Without this the build aborts here before build.ninja is generated. The
+# explicit -DQt6_DIR= form is still needed for the QNX cross-build, where
+# nothing else points at the right Qt.
 if(NOT DEFINED Qt6_DIR)
-    message(FATAL_ERROR "Qt6_DIR not set. Please provide it via cmake:\n"
+    foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
+        if(EXISTS "${_prefix}/lib/cmake/Qt6")
+            set(Qt6_DIR "${_prefix}/lib/cmake/Qt6" CACHE PATH "Qt6 CMake package directory")
+            break()
+        endif()
+    endforeach()
+endif()
+
+if(NOT DEFINED Qt6_DIR)
+    message(FATAL_ERROR "Qt6_DIR not set and not derivable from CMAKE_PREFIX_PATH.\n"
+            "Provide it via cmake:\n"
             "  cmake -S . -B <build_dir> -DQt6_DIR=<path_to_libs>/lib/cmake/Qt6")
 endif()
 message(STATUS "Using Qt6_DIR: ${Qt6_DIR}")

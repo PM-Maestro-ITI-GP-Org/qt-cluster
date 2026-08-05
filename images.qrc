@@ -1,5 +1,7 @@
 <RCC>
     <qresource prefix="/images">
+        <file>images/cluster_bezel_base.png</file>
+        <file>images/cluster_bezel_glow.png</file>
         <file>images/car.png</file>
         <file>images/speed.svg</file>
         <file>images/temp.svg</file>
