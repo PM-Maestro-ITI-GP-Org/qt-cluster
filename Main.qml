@@ -10,7 +10,10 @@ Window {
     height: 720
     visible: true
     title: "Cluster"
-    color: "#01040a"
+    // Must match FLAT in tools/make_bezel_layers.py. The artwork's dark areas
+    // are collapsed to this exact colour so the bezel silhouette disappears and
+    // the letterboxed bars blend in — the screen reads as a plain rectangle.
+    color: "#0d1424"
 
     Material.theme: Material.Dark
 
@@ -182,7 +185,7 @@ Window {
             y: 0
             text: ro.value
             color: "white"
-            font.pixelSize: screen.h * 0.42
+            font.pixelSize: screen.h * 0.28
             font.weight: Font.ExtraLight
             font.family: "Century Gothic"
         }
@@ -260,7 +263,7 @@ Window {
         Readout {
             x: screen.w * 0.78 - width / 2
             anchors.verticalCenter: parent.verticalCenter
-            value: live.power.toFixed(1)
+            value: Math.round(live.power)
             unit: "KW"
             caption: "POWER"
         }
