@@ -166,6 +166,31 @@ Window {
         maskSpreadAtMin: 1.0
     }
 
+    // --- Gear indicator ------------------------------------------------------
+    // Static: VehicleBackend exposes no gear signal. Bind `gear` to one when
+    // there is something to bind it to.
+    property string gear: "P"
+
+    Row {
+        anchors.horizontalCenter: parent.horizontalCenter
+        // Below the artwork's road line rather than across it — at 0.80 the
+        // line runs straight through the letters.
+        y: bezel.drawY + bezel.paintedHeight * 0.86 - height / 2
+        spacing: bezel.paintedWidth * 0.028
+
+        Repeater {
+            model: ["P", "N", "R"]
+            delegate: Text {
+                text: modelData
+                color: modelData === root.gear ? "white" : "#4c5c70"
+                font.pixelSize: bezel.paintedHeight * 0.055
+                font.weight: modelData === root.gear ? Font.Bold : Font.Light
+                font.letterSpacing: 1
+                font.family: "Century Gothic"
+            }
+        }
+    }
+
     // A number with its unit and caption, sized off the lens height.
     // Explicit anchors rather than a Column: the gap under the big number has
     // to close up against its font leading, and a Column's spacing would apply
