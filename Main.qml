@@ -28,24 +28,29 @@ Window {
     // motor_controller feeding the SPI reader.
     property real demoSpeed: 0
 
+    // Slow on purpose: the sweep exists to check where the light lands against
+    // each number, which is hard to judge if it races past. Raise the two
+    // durations (milliseconds) to slow it further.
+    //
+    // Linear rather than eased, so speed climbs at a constant rate and the
+    // light spends the same time between every pair of numbers. InOutSine made
+    // it crawl at the ends and rush through the middle of the scale.
     SequentialAnimation on demoSpeed {
         running: demoMode
         loops: Animation.Infinite
         NumberAnimation {
             to: 250
-            duration: 11000
-            easing.type: Easing.InOutSine
+            duration: 40000
         }
         PauseAnimation {
-            duration: 800
+            duration: 2500
         }
         NumberAnimation {
             to: 0
-            duration: 8000
-            easing.type: Easing.InOutSine
+            duration: 30000
         }
         PauseAnimation {
-            duration: 600
+            duration: 2000
         }
     }
 
@@ -54,10 +59,19 @@ Window {
     // pinned at its starting value; a standalone SmoothedAnimation latches `to`
     // when it starts and never re-targets. If the SPI data turns out jittery,
     // smooth it in VehicleBackend rather than reintroducing either of those.
+    // CLUSTER_SPEED wins over both the demo sweep and the backend, so the glow
+    // can be parked on one number while glowY is tuned.
     QtObject {
         id: live
-        readonly property real speed: demoMode ? root.demoSpeed : Vehicle.speed
-        readonly property real power: demoMode ? root.demoSpeed * 0.75 : Vehicle.power
+        readonly property real speed: fixedSpeed >= 0 ? fixedSpeed : demoMode ? root.demoSpeed : Vehicle.speed
+        readonly property real power: fixedSpeed >= 0 ? fixedSpeed * 0.75 : demoMode ? root.demoSpeed * 0.75 : Vehicle.power
+    }
+
+    // glowY is indexed by scaleValues, so a short array silently produces NaN
+    // from the last valid entry upward and the glow stops moving.
+    Component.onCompleted: {
+        if (root.glowY.length !== root.scaleValues.length)
+            console.warn("glowY has", root.glowY.length, "entries but scaleValues has", root.scaleValues.length + "; the glow will break above", root.scaleValues[root.glowY.length - 1], "km/h");
     }
 
     // Fractions of the bezel artwork occupied by its lit lens, measured off the
@@ -103,22 +117,66 @@ Window {
         mipmap: true
     }
 
-    // How far the neon has lit, 0 at a standstill to 1 at glowTopSpeed.
-    readonly property real glowFill: Math.max(0, Math.min(1, live.speed / root.glowTopSpeed))
-
     // Half-width of the feathered boundary, as a fraction of artwork height.
     readonly property real glowSoftness: 0.055
 
-    // The lit boundary, as a fraction of the artwork rect — the mask is sized
-    // to that rect, so it shares its coordinates.
+    // The lit boundary is a fraction of the artwork rect — the mask is sized to
+    // that rect, so the two share coordinates.
+
+    // ==== TUNE THE GLOW HERE =================================================
+    // Where the light stops for each value in scaleValues, as a fraction of the
+    // artwork height. Smaller = higher up the ring.
     //
-    // The sweep runs over the neon's own span rather than the whole image: the
-    // ring only occupies y 105..350 of the 447px artwork, so using the full
-    // height would waste part of the range crossing empty bezel. It also
-    // travels a softness beyond the ring at each end, so at 0 the whole feather
-    // sits below the ring (fully dark) and at 1 above it (fully lit), instead
-    // of leaving the extremes half-lit.
-    readonly property real glowEdge: root.screenBottomFrac + root.glowSoftness - (root.screenBottomFrac - root.screenTopFrac + 2 * root.glowSoftness) * root.glowFill
+    // Kept separate from scaleY (the label positions) on purpose, so the light
+    // can be nudged without dragging the numbers with it. Start them equal and
+    // adjust from there.
+    //
+    // These land the light on the numbers: entries 40..240 are scaleY + 0.038.
+    //
+    // An entry is NOT where the light appears to stop. The boundary is feathered
+    // by glowSoftness, so the visible top sits about 20px above the commanded
+    // position — measured at every speed by rendering with CLUSTER_SPEED and
+    // differencing against the standstill frame, and consistent across the
+    // scale. The +0.038 cancels it; without it the light reads a whole number
+    // too high all the way up.
+    //
+    // Change glowSoftness and that offset changes with it; re-measure rather
+    // than guess. If you move a number in scaleY, move its glowY entry by the
+    // same amount.
+    //
+    // The first entry is the standstill position: below the ring, nothing lit.
+    //
+    //                               0     40     80    120    160    200    240
+    readonly property var glowY: [0.838, 0.773, 0.748, 0.638, 0.502, 0.403, 0.368]
+    // =========================================================================
+
+    // Speed -> lit boundary, interpolated through glowY.
+    //
+    // A single linear ramp cannot match the scale: the labels are not evenly
+    // spaced down the ring (0->40 covers 0.015 of the artwork, 80->120 covers
+    // 0.11), so a linear fill runs well ahead of the numbers by mid-scale.
+    function glowEdgeFor(v) {
+        var vals = root.scaleValues;
+        var ys = root.glowY;
+        var n = vals.length;
+
+        // Starts at i = 0 so glowY[0] is the standstill position. It used to
+        // start at 1 with a separate constant for a standstill, which left
+        // glowY[0] silently unused — editing it did nothing.
+        if (v <= vals[0])
+            return ys[0];
+
+        for (var i = 0; i < n - 1; ++i) {
+            if (v <= vals[i + 1])
+                return ys[i] + (ys[i + 1] - ys[i]) * (v - vals[i]) / (vals[i + 1] - vals[i]);
+        }
+
+        // Past the top label, carry on at the last segment's rate.
+        var slope = (ys[n - 1] - ys[n - 2]) / (vals[n - 1] - vals[n - 2]);
+        return ys[n - 1] + slope * (v - vals[n - 1]);
+    }
+
+    readonly property real glowEdge: glowEdgeFor(live.speed)
 
     // The neon ring, revealed bottom-up rather than faded: the lit part is at
     // full artwork brightness and the boundary climbs with speed.
@@ -197,8 +255,8 @@ Window {
     // They run bottom-centre round to top, the same direction the light fills,
     // so the lit edge sweeps past them in order.
     readonly property var scaleValues: [0, 40, 80, 120, 160, 200, 240]
-    readonly property var scaleLX: [0.3576, 0.2790, 0.2185, 0.1738, 0.1548, 0.1945, 0.2566]
-    readonly property var scaleY: [0.7562, 0.7429, 0.7031, 0.5911, 0.4640, 0.3577, 0.3122]
+    readonly property var scaleLX: [0.34, 0.265, 0.20, 0.17, 0.15, 0.17, 0.24]
+    readonly property var scaleY: [0.75, 0.735, 0.71, 0.60, 0.4640, 0.365, 0.33]
 
     // Pushed inboard — left column to the right, right column to the left — so
     // the numbers clear the ring instead of sitting on the lit band.
