@@ -186,6 +186,200 @@ Window {
         maskSpreadAtMin: 1.0
     }
 
+    // --- Scale along the ring ------------------------------------------------
+    // Fixed positions rather than anything derived at run time. The ring cannot
+    // be traced geometrically: ray-marching out from the lens centre misses it
+    // entirely along the bottom (the lens dips lower in the middle than at the
+    // sides), and it is not a closed barrier either — a flood fill from the
+    // centre escapes through gaps in the glow. So these are the points marked
+    // on the artwork, mirrored left-to-right for symmetry.
+    //
+    // They run bottom-centre round to top, the same direction the light fills,
+    // so the lit edge sweeps past them in order.
+    readonly property var scaleValues: [0, 40, 80, 120, 160, 200, 240]
+    readonly property var scaleLX: [0.3576, 0.2790, 0.2185, 0.1738, 0.1548, 0.1945, 0.2566]
+    readonly property var scaleY: [0.7562, 0.7429, 0.7031, 0.5911, 0.4640, 0.3577, 0.3122]
+
+    // Pushed inboard — left column to the right, right column to the left — so
+    // the numbers clear the ring instead of sitting on the lit band.
+    readonly property real scaleInsetX: 0.030
+
+    Repeater {
+        model: root.scaleValues.length
+        delegate: Text {
+            text: root.scaleValues[index]
+            color: "#8ea3ba"
+            font.pixelSize: root.artH * 0.032
+            font.family: "Century Gothic"
+            x: root.artX + root.artW * (root.scaleLX[index] + root.scaleInsetX) - width / 2
+            y: root.artY + root.artH * root.scaleY[index] - height / 2
+        }
+    }
+
+    Repeater {
+        model: root.scaleValues.length
+        delegate: Text {
+            text: root.scaleValues[index]
+            color: "#8ea3ba"
+            font.pixelSize: root.artH * 0.032
+            font.family: "Century Gothic"
+            // Mirrored about the artwork's vertical centre line.
+            x: root.artX + root.artW * (1 - root.scaleLX[index] - root.scaleInsetX) - width / 2
+            y: root.artY + root.artH * root.scaleY[index] - height / 2
+        }
+    }
+
+    // --- State of charge and accumulated distance ----------------------------
+    // Neither has a backend signal: VehicleBackend::battery() is hardcoded to 0
+    // and there is no odometer at all. Bound so they light up correctly once
+    // there is something behind them; the demo values just make the layout
+    // legible without hardware.
+    readonly property real soc: demoMode ? 78 : Vehicle.battery
+    readonly property real odoKm: demoMode ? 12480 : 0
+
+    component CornerStat: Column {
+        property string value: ""
+        property string caption: ""
+        spacing: root.artH * 0.004
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: value
+            color: "white"
+            opacity: 0.92
+            font.pixelSize: root.artH * 0.055
+            font.family: "Century Gothic"
+        }
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: caption
+            color: root.cyan
+            opacity: 0.75
+            font.pixelSize: root.artH * 0.026
+            font.weight: Font.Bold
+            font.letterSpacing: 2
+            font.family: "Century Gothic"
+        }
+    }
+
+    CornerStat {
+        x: root.artX + root.artW * 0.225 - width / 2
+        y: root.artY + root.artH * 0.905
+        value: Math.round(root.soc) + "%"
+        caption: "SOC"
+    }
+
+    CornerStat {
+        x: root.artX + root.artW * 0.775 - width / 2
+        y: root.artY + root.artH * 0.905
+        value: Math.round(root.odoKm).toLocaleString(Qt.locale("en_US"), "f", 0)
+        caption: "KM TOTAL"
+    }
+
+    // --- Telltales -----------------------------------------------------------
+    // White when idle, flickering red when their fault is raised.
+    //
+    // The source PNGs are white silhouettes on transparent. That matters:
+    // MultiEffect's colorization tints by luminance, so the original black line
+    // art would have stayed black whatever colour was applied to it.
+    //
+    // None of these is wired to the backend. VehicleBackend has no signal for
+    // any of them — its only real faults are overspeed, vibration and
+    // overcurrent — so each is a plain property to bind later.
+    property bool faultEngine: false
+    property bool faultBattery: false
+    property bool faultAbs: false
+    property bool faultSeatbelt: false
+
+    component Telltale: Item {
+        id: lamp
+        property alias icon: img.source
+        property bool active: false
+
+        Image {
+            id: img
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            visible: false
+        }
+
+        MultiEffect {
+            id: tint
+            source: img
+            anchors.fill: img
+            colorization: lamp.active ? 1.0 : 0.0
+            colorizationColor: "#ff2b2b"
+            opacity: lamp.active ? 1.0 : 0.28
+
+            // Flicker only while raised; snap back to the idle level after, so
+            // a lamp never gets stranded mid-fade when its fault clears.
+            SequentialAnimation on opacity {
+                running: lamp.active
+                loops: Animation.Infinite
+                NumberAnimation {
+                    to: 0.15
+                    duration: 260
+                }
+                NumberAnimation {
+                    to: 1.0
+                    duration: 260
+                }
+                onStopped: tint.opacity = lamp.active ? 1.0 : 0.28
+            }
+        }
+    }
+
+    // Two per side in the upper corners, following the ring's shoulder.
+    readonly property real telltaleSize: root.artH * 0.038
+    readonly property var telltaleX: [0.1771, 0.2318, 0.7682, 0.8229]
+    readonly property var telltaleY: [0.2495, 0.2153, 0.2153, 0.2495]
+
+    Repeater {
+        model: [
+            {
+                icon: "telltale_engine",
+                on: root.faultEngine
+            },
+            {
+                icon: "telltale_battery",
+                on: root.faultBattery
+            },
+            {
+                icon: "telltale_abs",
+                on: root.faultAbs
+            },
+            {
+                icon: "telltale_seatbelt",
+                on: root.faultSeatbelt
+            }
+        ]
+        delegate: Telltale {
+            width: root.telltaleSize
+            height: root.telltaleSize
+            x: root.artX + root.artW * root.telltaleX[index] - width / 2
+            y: root.artY + root.artH * root.telltaleY[index] - height / 2
+            icon: "qrc:/images/images/" + modelData.icon + ".png"
+            active: modelData.on
+        }
+    }
+
+    // Demo only: cycles the lamps so the flicker can be seen without hardware.
+    Timer {
+        interval: 2200
+        running: demoMode
+        repeat: true
+        property int step: 0
+        onTriggered: {
+            step = (step + 1) % 5;
+            root.faultEngine = step === 1;
+            root.faultBattery = step === 2;
+            root.faultAbs = step === 3;
+            root.faultSeatbelt = step === 4;
+        }
+    }
+
     // --- Gear indicator ------------------------------------------------------
     // Static: VehicleBackend exposes no gear signal. Bind `gear` to one when
     // there is something to bind it to.
