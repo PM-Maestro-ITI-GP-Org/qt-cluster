@@ -156,9 +156,12 @@ export QT_QPA_PLATFORM_PLUGIN_PATH=\"$DIR/plugins/platforms\"
 # plugin is libqqnx.so and talks to Screen. Overridable for a host-side run.
 export QT_QPA_PLATFORM=\"\${QT_QPA_PLATFORM:-qnx}\"
 export QT_QUICK_BACKEND=\"software\"
-export QQNX_PHYSICAL_SCREEN_SIZE=\"\${QQNX_PHYSICAL_SCREEN_SIZE:-150,90}\"
-export APP_WIDTH=\"\${APP_WIDTH:-1280}\"
-export APP_HEIGHT=\"\${APP_HEIGHT:-720}\"
+# 7\" panel: ~154x87mm active area at 1024x600.
+export QQNX_PHYSICAL_SCREEN_SIZE=\"\${QQNX_PHYSICAL_SCREEN_SIZE:-154,87}\"
+# Target panel size. NOTE: nothing reads these yet -- Main.qml sets its own
+# Window size. They are kept in step so they do not mislead.
+export APP_WIDTH=\"\${APP_WIDTH:-1024}\"
+export APP_HEIGHT=\"\${APP_HEIGHT:-600}\"
 # FONTCONFIG_FILE only matters to a Qt built with fontconfig. This one is not
 # -- libQt6Gui links freetype and nothing else -- so it uses the basic font
 # database, which reads QT_QPA_FONTDIR and otherwise looks in a compiled-in

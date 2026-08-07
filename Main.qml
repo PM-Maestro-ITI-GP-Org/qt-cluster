@@ -6,8 +6,10 @@ import QtQuick.Controls.Material
 // power on the right. Numbers only, no gauges.
 Window {
     id: root
-    width: 1280
-    height: 720
+    // Target hardware: 7" panel at 1024x600. See bezelScale for how the
+    // 1024x447 artwork is fitted to it.
+    width: 1024
+    height: 600
     visible: true
     title: "Cluster"
     // Must match FLAT in tools/make_bezel_layers.py. The artwork's dark areas
@@ -75,39 +77,48 @@ Window {
     // pixels, so it is keyed back out to alpha, and then the blue neon ring is
     // split off into its own layer so its brightness can be driven.
     //
-    // Aspect-preserved, not stretched — the artwork is 2.29:1 against a 16:9
-    // window, and stretching visibly distorts the bezel.
+    // Artwork rect in window coordinates. Both layers are placed with it, and
+    // every position below is a fraction of it.
+    //
+    // bezelScale over 1 lets the artwork spill past the window edges so the
+    // shape reads larger on a small panel. Only the artwork's empty margins go
+    // off-screen: the ring occupies 0.113..0.887 of the width, so it stays
+    // fully visible up to a scale of about 1.29. Aspect is always preserved —
+    // the source is 2.29:1 and stretching visibly distorts the bezel.
+    readonly property real bezelScale: 1.18
+    readonly property real artW: width * bezelScale
+    readonly property real artH: artW * (447 / 1024)
+    readonly property real artX: (width - artW) / 2
+    readonly property real artY: (height - artH) / 2
+
     Image {
         id: bezel
-        anchors.fill: parent
+        x: root.artX
+        y: root.artY
+        width: root.artW
+        height: root.artH
         source: "qrc:/images/images/cluster_bezel_base.png"
         fillMode: Image.PreserveAspectFit
         smooth: true
         mipmap: true
-
-        // Where the artwork actually lands inside the item once letterboxed.
-        readonly property real drawX: (width - paintedWidth) / 2
-        readonly property real drawY: (height - paintedHeight) / 2
     }
 
     // How far the neon has lit, 0 at a standstill to 1 at glowTopSpeed.
     readonly property real glowFill: Math.max(0, Math.min(1, live.speed / root.glowTopSpeed))
 
-    // Vertical span of the neon in window coordinates. The sweep runs across
-    // this rather than the whole image: the ring only occupies y 105..350 of
-    // the 447px artwork, so using the full height would waste part of the
-    // range crossing empty bezel before anything lit up.
-    readonly property real neonTop: bezel.drawY + bezel.paintedHeight * root.screenTopFrac
-    readonly property real neonBottom: bezel.drawY + bezel.paintedHeight * root.screenBottomFrac
-
-    // Half-width of the feathered boundary, as a fraction of window height.
+    // Half-width of the feathered boundary, as a fraction of artwork height.
     readonly property real glowSoftness: 0.055
-    readonly property real glowSoftPx: height * glowSoftness
 
-    // The boundary travels a softPx beyond the neon at each end, so at 0 the
-    // whole feather sits below the ring (fully dark) and at 1 it sits above it
-    // (fully lit) instead of leaving the extremes half-lit.
-    readonly property real glowEdge: (root.neonBottom + root.glowSoftPx - (root.neonBottom - root.neonTop + 2 * root.glowSoftPx) * root.glowFill) / root.height
+    // The lit boundary, as a fraction of the artwork rect — the mask is sized
+    // to that rect, so it shares its coordinates.
+    //
+    // The sweep runs over the neon's own span rather than the whole image: the
+    // ring only occupies y 105..350 of the 447px artwork, so using the full
+    // height would waste part of the range crossing empty bezel. It also
+    // travels a softness beyond the ring at each end, so at 0 the whole feather
+    // sits below the ring (fully dark) and at 1 above it (fully lit), instead
+    // of leaving the extremes half-lit.
+    readonly property real glowEdge: root.screenBottomFrac + root.glowSoftness - (root.screenBottomFrac - root.screenTopFrac + 2 * root.glowSoftness) * root.glowFill
 
     // The neon ring, revealed bottom-up rather than faded: the lit part is at
     // full artwork brightness and the boundary climbs with speed.
@@ -117,7 +128,10 @@ Window {
     // the MultiEffect; only its output is drawn.
     Image {
         id: glowImage
-        anchors.fill: parent
+        x: root.artX
+        y: root.artY
+        width: root.artW
+        height: root.artH
         source: "qrc:/images/images/cluster_bezel_glow.png"
         fillMode: Image.PreserveAspectFit
         smooth: true
@@ -128,7 +142,10 @@ Window {
 
     Rectangle {
         id: glowMask
-        anchors.fill: parent
+        x: root.artX
+        y: root.artY
+        width: root.artW
+        height: root.artH
         visible: false
         layer.enabled: true
         gradient: Gradient {
@@ -152,7 +169,10 @@ Window {
     }
 
     MultiEffect {
-        anchors.fill: parent
+        x: root.artX
+        y: root.artY
+        width: root.artW
+        height: root.artH
         source: glowImage
         maskEnabled: true
         maskSource: glowMask
@@ -175,15 +195,15 @@ Window {
         anchors.horizontalCenter: parent.horizontalCenter
         // Below the artwork's road line rather than across it — at 0.80 the
         // line runs straight through the letters.
-        y: bezel.drawY + bezel.paintedHeight * 0.86 - height / 2
-        spacing: bezel.paintedWidth * 0.028
+        y: root.artY + root.artH * 0.86 - height / 2
+        spacing: root.artW * 0.028
 
         Repeater {
             model: ["P", "N", "R"]
             delegate: Text {
                 text: modelData
                 color: modelData === root.gear ? "white" : "#4c5c70"
-                font.pixelSize: bezel.paintedHeight * 0.055
+                font.pixelSize: root.artH * 0.055
                 font.weight: modelData === root.gear ? Font.Bold : Font.Light
                 font.letterSpacing: 1
                 font.family: "Century Gothic"
@@ -243,10 +263,10 @@ Window {
     // The lit region of the bezel; both readouts sit inside it.
     Item {
         id: screen
-        x: bezel.drawX + bezel.paintedWidth * root.screenLeftFrac
-        y: bezel.drawY + bezel.paintedHeight * root.screenTopFrac
-        width: bezel.paintedWidth * (root.screenRightFrac - root.screenLeftFrac)
-        height: bezel.paintedHeight * (root.screenBottomFrac - root.screenTopFrac)
+        x: root.artX + root.artW * root.screenLeftFrac
+        y: root.artY + root.artH * root.screenTopFrac
+        width: root.artW * (root.screenRightFrac - root.screenLeftFrac)
+        height: root.artH * (root.screenBottomFrac - root.screenTopFrac)
 
         readonly property real w: width
         readonly property real h: height
