@@ -64,7 +64,10 @@ Window {
     QtObject {
         id: live
         readonly property real speed: fixedSpeed >= 0 ? fixedSpeed : demoMode ? root.demoSpeed : Vehicle.speed
-        readonly property real power: fixedSpeed >= 0 ? fixedSpeed * 0.75 : demoMode ? root.demoSpeed * 0.75 : Vehicle.power
+        // Watts. 25 W per km/h in the demo, so power lines up with the right
+        // scale: 40 km/h is 1 kW, 80 is 2, up to 240 being 6. Without that the
+        // readout and the light would disagree about which mark they are on.
+        readonly property real power: fixedSpeed >= 0 ? fixedSpeed * 25 : demoMode ? root.demoSpeed * 25 : Vehicle.power
     }
 
     // glowY is indexed by scaleValues, so a short array silently produces NaN
@@ -290,15 +293,34 @@ Window {
         }
     }
 
+    // The right side is the power scale in kW, sharing the left side's
+    // positions: 1 sits where 40 does, 2 where 80, and so on. Since the ring is
+    // driven by speed, the light arriving at "1" is the same instant it arrives
+    // at "40" — which only reads correctly because the demo ties power to speed
+    // at 25 W per km/h, so 40 km/h is exactly 1 kW.
+    readonly property var scaleValuesRight: [0, 1, 2, 3, 4, 5, 6]
+
     Repeater {
-        model: root.scaleValues.length
+        model: root.scaleValuesRight.length
         delegate: Text {
-            text: root.scaleValues[index]
+            id: rightLabel
+            text: root.scaleValuesRight[index]
             color: "#8ea3ba"
             font.pixelSize: root.artH * 0.032
             font.family: "Century Gothic"
-            // Mirrored about the artwork's vertical centre line.
-            x: root.artX + root.artW * (1 - root.scaleLX[index] - root.scaleInsetX) - width / 2
+
+            // Width of the left-hand label at the same position. The right
+            // numbers are one digit while the left run to three, so mirroring
+            // their centres leaves the single digits sitting far inboard with a
+            // visible gap to the ring. Mirroring the outer edge instead keeps
+            // both columns the same distance from the light.
+            TextMetrics {
+                id: leftMetrics
+                font: rightLabel.font
+                text: root.scaleValues[index]
+            }
+
+            x: root.artX + root.artW * (1 - root.scaleLX[index] - root.scaleInsetX) + leftMetrics.width / 2 - width
             y: root.artY + root.artH * root.scaleY[index] - height / 2
         }
     }
@@ -576,7 +598,14 @@ Window {
         Readout {
             x: screen.w * 0.78 - width / 2
             anchors.verticalCenter: parent.verticalCenter
-            value: Math.round(live.power)
+            // Backend power is watts; shown as kW, so the readout stays a
+            // single digit instead of a four-digit number.
+            //
+            // floor, not round: rounding ticks over at the halfway point, so
+            // the readout would read 2 while the light was still climbing
+            // between the 1 and 2 marks. Truncating makes it change exactly as
+            // the light arrives.
+            value: Math.floor(live.power / 1000)
             unit: "KW"
             caption: "POWER"
         }
