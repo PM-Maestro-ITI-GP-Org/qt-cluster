@@ -118,7 +118,15 @@ Window {
     }
 
     // Half-width of the feathered boundary, as a fraction of artwork height.
-    readonly property real glowSoftness: 0.055
+    readonly property real glowSoftness: 0.01
+
+    // Extra punch on the lit part of the ring, 0 = artwork as-is.
+    //
+    // Saturation is raised alongside brightness on purpose: brightness alone
+    // lifts every channel toward white, so past about 0.2 the neon goes milky
+    // grey and stops reading as blue.
+    readonly property real glowBrightness: 0.01
+    readonly property real glowSaturation: 0.02
 
     // The lit boundary is a fraction of the artwork rect — the mask is sized to
     // that rect, so the two share coordinates.
@@ -131,23 +139,25 @@ Window {
     // can be nudged without dragging the numbers with it. Start them equal and
     // adjust from there.
     //
-    // These land the light on the numbers: entries 40..240 are scaleY + 0.038.
+    // These land the light on the numbers: entries 40..240 are scaleY + 0.008.
     //
     // An entry is NOT where the light appears to stop. The boundary is feathered
-    // by glowSoftness, so the visible top sits about 20px above the commanded
-    // position — measured at every speed by rendering with CLUSTER_SPEED and
-    // differencing against the standstill frame, and consistent across the
-    // scale. The +0.038 cancels it; without it the light reads a whole number
-    // too high all the way up.
+    // by glowSoftness, so the visible top sits above the commanded position and
+    // the entries compensate. THE COMPENSATION IS TIED TO glowSoftness: it was
+    // 0.038 at a softness of 0.055 and is 0.008 at 0.01. Change the softness
+    // without refitting these and the light stops short, so it needs extra
+    // speed to reach each number — e.g. 171 km/h to arrive at the 160 mark.
     //
-    // Change glowSoftness and that offset changes with it; re-measure rather
-    // than guess. If you move a number in scaleY, move its glowY entry by the
-    // same amount.
+    // To refit: set the entries equal to scaleY, render at each speed with
+    // CLUSTER_SPEED, difference against the standstill frame to find the
+    // topmost row that gained light, and add back the offset you measure.
+    //
+    // If you move a number in scaleY, move its glowY entry by the same amount.
     //
     // The first entry is the standstill position: below the ring, nothing lit.
     //
     //                               0     40     80    120    160    200    240
-    readonly property var glowY: [0.838, 0.773, 0.748, 0.638, 0.502, 0.403, 0.368]
+    readonly property var glowY: [0.838, 0.78, 0.75, 0.608, 0.472, 0.33, 0.28]
     // =========================================================================
 
     // Speed -> lit boundary, interpolated through glowY.
@@ -242,6 +252,12 @@ Window {
         // the mask completely.
         maskThresholdMin: 0.5
         maskSpreadAtMin: 1.0
+
+        // The ring's bottom is dimmer in the artwork than its sides, so at low
+        // speed only the weak part is lit and the whole thing reads faint.
+        // Lifts the lit region without touching the always-on baseline.
+        brightness: root.glowBrightness
+        saturation: root.glowSaturation
     }
 
     // --- Scale along the ring ------------------------------------------------
