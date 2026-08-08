@@ -476,6 +476,34 @@ Window {
         }
     }
 
+    // --- Car ------------------------------------------------------------------
+    // Centred between the two readouts, over the road graphic in the artwork.
+    //
+    // The source is cropped to its own alpha bounds, so its height maps
+    // directly to what you see — no transparent margin to compensate for. Width
+    // follows from the trimmed aspect (702x510) rather than being set
+    // separately, so it cannot end up stretched.
+    //
+    // Sized so the car's width matches the road graphic's lane at the height it
+    // sits at — its rear wheels land on the converging lines. Bigger and it
+    // spills over them; smaller and it floats, too narrow for the lane, which
+    // breaks the perspective either way.
+    readonly property real carHeight: 0.18      // fraction of artH
+    readonly property real carCentreY: 0.550    // ... and where its middle sits
+
+    Image {
+        source: "qrc:/images/images/car_top.png"
+        height: root.artH * root.carHeight
+        width: height*10
+        x: root.artX + root.artW * 0.5 - width / 2
+
+        y:340
+
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+        mipmap: true
+    }
+
     // --- Gear indicator ------------------------------------------------------
     // Static: VehicleBackend exposes no gear signal. Bind `gear` to one when
     // there is something to bind it to.
