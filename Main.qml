@@ -120,6 +120,27 @@ Window {
         mipmap: true
     }
 
+    // The lane graphic, split out of the base by tools/make_bezel_layers.py so
+    // fault mode can drop it. It is placed with the same rect as the base and
+    // carries its original position inside a full-size transparent PNG, so the
+    // two cannot drift apart.
+    Image {
+        x: root.artX
+        y: root.artY
+        width: root.artW
+        height: root.artH
+        source: "qrc:/images/images/cluster_road.png"
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+        mipmap: true
+        opacity: root.faultMode ? 0.0 : 1.0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 260
+            }
+        }
+    }
+
     // Half-width of the feathered boundary, as a fraction of artwork height.
     readonly property real glowSoftness: 0.01
 
@@ -387,6 +408,20 @@ Window {
     property bool faultAbs: false
     property bool faultSeatbelt: false
 
+    // --- Fault mode ----------------------------------------------------------
+    // Two states for the centre of the lens. Normally the car is seen from
+    // behind, sitting on the road graphic; when something is wrong the road
+    // drops away and the view swaps to the car from above, so the eye goes to
+    // the vehicle rather than to the driving scene.
+    //
+    // Driven off the telltales *and* the backend's own alerts. The telltales
+    // are what the demo cycles, so the mode can be seen without hardware, and
+    // criticalAlert is the one fault signal that is real today — the four lamps
+    // above have nothing behind them yet.
+    readonly property bool faultMode: root.faultEngine || root.faultBattery
+                                      || root.faultAbs || root.faultSeatbelt
+                                      || Vehicle.criticalAlert
+
     component Telltale: Item {
         id: lamp
         property alias icon: img.source
@@ -407,10 +442,12 @@ Window {
             anchors.fill: img
             colorization: lamp.active ? 1.0 : 0.0
             colorizationColor: "#ff2b2b"
-            opacity: lamp.active ? 1.0 : 0.28
+            // Full opacity in both states: idle reads as the PNG's own white,
+            // raised as solid red. Only the flicker takes it below 1.
+            opacity: 1.0
 
-            // Flicker only while raised; snap back to the idle level after, so
-            // a lamp never gets stranded mid-fade when its fault clears.
+            // Flicker only while raised; snap back to full after, so a lamp
+            // never gets stranded mid-fade when its fault clears.
             SequentialAnimation on opacity {
                 running: lamp.active
                 loops: Animation.Infinite
@@ -422,7 +459,7 @@ Window {
                     to: 1.0
                     duration: 260
                 }
-                onStopped: tint.opacity = lamp.active ? 1.0 : 0.28
+                onStopped: tint.opacity = 1.0
             }
         }
     }
@@ -488,20 +525,51 @@ Window {
     // sits at — its rear wheels land on the converging lines. Bigger and it
     // spills over them; smaller and it floats, too narrow for the lane, which
     // breaks the perspective either way.
+    // In fault mode the road is gone, so the overhead car is not bound by the
+    // lane and grows into the emptied lens. It reaches above the old lane band
+    // but is held down at the bottom: past about 0.86 of artH the tail crosses
+    // the arc the gear indicator hangs off. Raising the centre is what buys the
+    // extra size — the two have to move together.
     readonly property real carHeight: 0.18      // fraction of artH
-    readonly property real carCentreY: 0.550    // ... and where its middle sits
+    readonly property real carY: 340            // window px, top of the rear view
+    readonly property real faultCarHeight: 0.38 // fraction of artH
+    readonly property real faultCarCentreY: 0.58
 
     Image {
+        id: carRear
         source: "qrc:/images/images/car_top.png"
         height: root.artH * root.carHeight
-        width: height*10
+        width: height * (702 / 510)             // the source's trimmed aspect
         x: root.artX + root.artW * 0.5 - width / 2
-
-        y:340
-
+        y: root.carY
         fillMode: Image.PreserveAspectFit
         smooth: true
         mipmap: true
+        opacity: root.faultMode ? 0.0 : 1.0
+        visible: opacity > 0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 260
+            }
+        }
+    }
+
+    Image {
+        source: "qrc:/images/images/car_fault_top.png"
+        height: root.artH * root.faultCarHeight
+        width: height * (251 / 600)             // the source's trimmed aspect
+        x: root.artX + root.artW * 0.5 - width / 2
+        y: root.artY + root.artH * root.faultCarCentreY - height / 2
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+        mipmap: true
+        opacity: root.faultMode ? 1.0 : 0.0
+        visible: opacity > 0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 260
+            }
+        }
     }
 
     // --- Gear indicator ------------------------------------------------------

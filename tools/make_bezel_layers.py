@@ -105,6 +105,24 @@ BASE_HALO = 0.50
 BASE_CORE = 0.035
 CORENESS_LO, CORENESS_HI = 60.0, 180.0
 
+# --- Road ------------------------------------------------------------------
+# The perspective lane graphic is lifted into a third layer so Main.qml can
+# hide it on its own -- fault mode drops the road and leaves the lens empty
+# behind the car.
+#
+# A box is enough to separate it. The lane lines stop at y=327 and the arc that
+# sweeps below them starts at y=335, so rows 328-334 are empty across the whole
+# width of the box and the cut clips neither. Horizontally the box stays well
+# inside the ring: at this height the ring's ambient is out at x<300 and x>720.
+#
+# Only pixels above FLAT move, on an alpha ramp, and each is un-composited
+# against FLAT so drawing the road back over the base reproduces the artwork.
+# A solid box would be exact too, but it would also swallow whatever ambient
+# sits between the lines, and that ambient would then vanish with the road and
+# leave a flat rectangle hanging in the lens.
+ROAD_BOX = (355, 245, 670, 331)      # left, top, right, bottom (exclusive)
+ROAD_LO, ROAD_HI = 0.5, 8.0          # channel delta above FLAT -> alpha ramp
+
 
 def main():
     im = Image.open(SRC).convert("RGB")
@@ -159,9 +177,42 @@ def main():
                         255)
             gp[x, y] = (r, g, b, int(255 * t))
 
+    road = _split_road(bp, W, H)
+
     base.save(os.path.join(IMAGES, "cluster_bezel_base.png"))
     glow.save(os.path.join(IMAGES, "cluster_bezel_glow.png"))
-    print("wrote cluster_bezel_base.png and cluster_bezel_glow.png (%dx%d)" % (W, H))
+    road.save(os.path.join(IMAGES, "cluster_road.png"))
+    print("wrote cluster_bezel_base.png, cluster_bezel_glow.png and "
+          "cluster_road.png (%dx%d)" % (W, H))
+
+
+def _split_road(bp, W, H):
+    """Move the lane graphic out of the base and into a layer of its own."""
+    road = Image.new("RGBA", (W, H))
+    rp = road.load()
+    x0, y0, x1, y1 = ROAD_BOX
+    moved = 0
+
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            r, g, b, _ = bp[x, y]
+            d = max(abs(r - FLAT[0]), abs(g - FLAT[1]), abs(b - FLAT[2]))
+            a = _clamp((d - ROAD_LO) / (ROAD_HI - ROAD_LO))
+            if a <= 0.0:
+                continue
+
+            # R = F + (c - F) / a, so that a*R + (1-a)*F composites back to c.
+            # Clamped because a partly-covered pixel can ask for a colour
+            # brighter than the source ever was.
+            rp[x, y] = (min(255, int(FLAT[0] + (r - FLAT[0]) / a)),
+                        min(255, int(FLAT[1] + (g - FLAT[1]) / a)),
+                        min(255, int(FLAT[2] + (b - FLAT[2]) / a)),
+                        int(255 * a))
+            bp[x, y] = FLAT + (255,)
+            moved += 1
+
+    print("road: %d px moved out of the base" % moved)
+    return road
 
 
 def _flood_outside(src, W, H):
