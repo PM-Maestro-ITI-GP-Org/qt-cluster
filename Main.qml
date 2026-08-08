@@ -578,6 +578,7 @@ Window {
     }
 
     Image {
+        id: carTop
         source: "qrc:/images/images/car_fault_top.png"
         height: root.artUnitH * root.faultCarHeight
         width: height * (251 / 600)             // the source's trimmed aspect
@@ -593,6 +594,106 @@ Window {
                 duration: 260
             }
         }
+    }
+
+    // --- Motor fault lamp and banner -----------------------------------------
+    // A red glow over the drive unit, with the kind of fault named above the
+    // car. Both key off errorKind rather than off faultMode, so a fault that is
+    // neither — the seatbelt lamp — still swaps to the overhead view but does
+    // not accuse the motor of anything.
+    //
+    // The split follows what the backend measures. Vibration is mechanical;
+    // current is electrical; an overspeed is the motor running away, so it goes
+    // with mechanical. tempWarning and voltageWarning are left out: both are
+    // hardcoded false in cluster.h and would only look wired.
+    readonly property string errorKind: {
+        if (Vehicle.vibWarning || Vehicle.speedWarning || root.faultEngine || root.faultAbs)
+            return "MECHANICAL";
+        if (Vehicle.currentWarning || root.faultBattery)
+            return "ELECTRICAL";
+        return "";
+    }
+
+    // Fraction of the overhead car's own height. The nose is at 0, so 0.85 is
+    // over the rear axle — the Mission E's drive unit, and the dark deck panel
+    // there takes the red better than bodywork would.
+    readonly property real motorY: 0.85
+    readonly property real errorTextY: 0.355   // fraction of artH
+
+    // Blurred rather than drawn with a gradient: MultiEffect is already how the
+    // ring and the telltales are lit, and QtQuick has no radial gradient
+    // without pulling in QtQuick.Shapes.
+    //
+    // The disc is a fraction of its own container rather than the whole of it,
+    // and the container is what gets blurred. MultiEffect crops to its bounds
+    // and scales the source to them, so a disc filling its layer has its
+    // falloff cut off square — the padding has to be inside the source.
+    Item {
+        id: motorLamp
+        width: carTop.width * 1.1
+        height: width
+        x: carTop.x + carTop.width / 2 - width / 2
+        y: carTop.y + carTop.height * root.motorY - height / 2
+        visible: false
+        layer.enabled: true
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: parent.width * 0.52
+            height: width
+            radius: width / 2
+            color: "#ff2b2b"
+        }
+    }
+
+    MultiEffect {
+        id: motorGlow
+        source: motorLamp
+        x: motorLamp.x
+        y: motorLamp.y
+        width: motorLamp.width
+        height: motorLamp.height
+        blurEnabled: true
+        // Enough to lose the disc's edge, not so much that the core washes
+        // out: the blur spreads a fixed amount of light over a bigger area, so
+        // past about 0.7 here the middle stops reading as lit at all.
+        blur: 0.65
+        blurMax: 40
+        visible: root.errorKind !== "" && carTop.visible
+        opacity: 0.75
+
+        // Slower than the telltale flicker on purpose: this is a wash of light
+        // over the car, and at the lamps' 260ms it strobes.
+        SequentialAnimation on opacity {
+            running: root.errorKind !== ""
+            loops: Animation.Infinite
+            NumberAnimation {
+                to: 0.35
+                duration: 700
+                easing.type: Easing.InOutSine
+            }
+            NumberAnimation {
+                to: 0.75
+                duration: 700
+                easing.type: Easing.InOutSine
+            }
+            onStopped: motorGlow.opacity = 0.75
+        }
+    }
+
+    Text {
+        x: root.artX + root.artW * 0.5 - width / 2
+        y: root.artY + root.artH * root.errorTextY - height / 2
+        text: root.errorKind + " ERROR"
+        // White, not red: the lamp on the car already carries the alarm, and a
+        // red banner on top of it read as shouty. Black was tried and is
+        // unreadable — it lands 36 levels off the lens background.
+        color: "white"
+        visible: root.errorKind !== ""
+        font.pixelSize: root.artUnitH * 0.036
+        font.family: "Century Gothic"
+        font.weight: Font.Bold
+        font.letterSpacing: 4
     }
 
     // --- Gear indicator ------------------------------------------------------
