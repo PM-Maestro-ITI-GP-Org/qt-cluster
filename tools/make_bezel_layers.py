@@ -2,14 +2,19 @@
 """Generate the cluster's bezel layers from the source artwork.
 
 Reads ../background (a JPEG with the transparency checkerboard baked in as
-real pixels) and writes two PNGs next to the other images:
+real pixels) and writes four PNGs next to the other images:
 
-    cluster_bezel_base.png   bezel with the neon ring switched off
-    cluster_bezel_glow.png   the neon ring alone, on transparent
+    cluster_bezel_base.png   everything except the ring, the road and the frame
+    cluster_ring_base.png    the ring at its always-on baseline
+    cluster_bezel_glow.png   the ring at full strength, on transparent
+    cluster_road.png         the perspective lane graphic, on transparent
 
-Main.qml draws the base always and reveals the glow bottom-up with speed, so
-the split has to be clean: anything of the ring left behind in the base shows
-as a permanent glow that never goes dark at a standstill.
+Main.qml stacks all four and drives them separately: the glow is revealed
+bottom-up with speed over the baseline, the ring layers are both tinted with
+ringColor, and the road is hidden in fault mode. The splits therefore have to
+be clean -- anything of the ring left behind in the base is a permanent glow
+that never goes dark at a standstill, and it also keeps the artwork's blue
+when the rest of the ring is recoloured.
 
 Run from anywhere:  python3 tools/make_bezel_layers.py
 """
@@ -70,9 +75,11 @@ NEON_OFF = (10, 15, 30)      # colour the ring fades to when unlit
 # and the interior is not distinct enough from the bezel body (a flood from the
 # centre escapes to the border).
 #
-# FLAT must match Window.color in Main.qml or the artwork's edges will show as
-# a rectangle against the letterboxed area.
-FLAT = (13, 20, 36)          # == #0d1424, sampled from the lens interior
+# FLAT must match Window.color in Main.qml. Since the artwork is stretched to
+# cover the whole window it is FLAT, not Window.color, that you actually see as
+# the background — changing the colour in Main.qml alone does nothing, and the
+# layers have to be regenerated from here.
+FLAT = (0, 0, 0)             # black; was #0d1424, sampled from the lens interior
 KEEP_LO, KEEP_HI = 26.0, 38.0
 
 # --- Always-on baseline ----------------------------------------------------
@@ -134,7 +141,8 @@ def main():
 
     base = Image.new("RGBA", (W, H))
     glow = Image.new("RGBA", (W, H))
-    bp, gp = base.load(), glow.load()
+    ring = Image.new("RGBA", (W, H))
+    bp, gp, rp = base.load(), glow.load(), ring.load()
 
     for y in range(H):
         for x in range(W):
@@ -164,26 +172,30 @@ def main():
                     FLAT[1] + (unlit[1] - FLAT[1]) * k,
                     FLAT[2] + (unlit[2] - FLAT[2]) * k)
 
-            # Put the ring back at its always-on baseline, blending from the
-            # flattened result toward the original. t scales it so non-ring
-            # pixels are untouched.
+            # The ring's always-on baseline. It used to be blended straight into
+            # the base; it goes to its own layer instead so Main.qml can tint it
+            # with the same colour it tints the glow. Left in the base it stays
+            # the artwork's blue, and recolouring the lit part alone leaves a
+            # blue outline above wherever the light has reached.
+            #
+            # Alpha is `keep` and the colour is the artwork's, so drawing this
+            # over the base reproduces the old blend exactly.
             orig_lum = (r * 299 + g * 587 + b * 114) / 1000.0
             coreness = _clamp((orig_lum - CORENESS_LO) / (CORENESS_HI - CORENESS_LO))
             keep = t * (BASE_HALO + (BASE_CORE - BASE_HALO) * coreness)
 
-            bp[x, y] = (int(flat[0] + (r - flat[0]) * keep),
-                        int(flat[1] + (g - flat[1]) * keep),
-                        int(flat[2] + (b - flat[2]) * keep),
-                        255)
+            bp[x, y] = (int(flat[0]), int(flat[1]), int(flat[2]), 255)
+            rp[x, y] = (r, g, b, int(255 * keep))
             gp[x, y] = (r, g, b, int(255 * t))
 
     road = _split_road(bp, W, H)
 
     base.save(os.path.join(IMAGES, "cluster_bezel_base.png"))
     glow.save(os.path.join(IMAGES, "cluster_bezel_glow.png"))
+    ring.save(os.path.join(IMAGES, "cluster_ring_base.png"))
     road.save(os.path.join(IMAGES, "cluster_road.png"))
-    print("wrote cluster_bezel_base.png, cluster_bezel_glow.png and "
-          "cluster_road.png (%dx%d)" % (W, H))
+    print("wrote cluster_bezel_base.png, cluster_bezel_glow.png, "
+          "cluster_ring_base.png and cluster_road.png (%dx%d)" % (W, H))
 
 
 def _split_road(bp, W, H):

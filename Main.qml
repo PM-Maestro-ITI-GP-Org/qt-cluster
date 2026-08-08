@@ -14,12 +14,31 @@ Window {
     title: "Cluster"
     // Must match FLAT in tools/make_bezel_layers.py. The artwork's dark areas
     // are collapsed to this exact colour so the bezel silhouette disappears and
-    // the letterboxed bars blend in — the screen reads as a plain rectangle.
-    color: "#0d1424"
+    // the screen reads as a plain rectangle.
+    //
+    // Since the stretch, the artwork covers the window edge to edge, so this is
+    // no longer what you see behind it — FLAT is. Changing it here on its own
+    // has no visible effect; the layers have to be regenerated to match.
+    color: "black"
 
     Material.theme: Material.Dark
 
-    readonly property color cyan: "#00d4ff"
+    // --- Colour scheme -------------------------------------------------------
+    // ringColor drives both halves of the neon ring: the always-on baseline
+    // (cluster_ring_base.png) and the lit part (cluster_bezel_glow.png). Both
+    // are colorized by luminance, so the artwork's own shading survives and only
+    // the hue changes — which is why the ring is worth recolouring here rather
+    // than repainting in the source artwork.
+    //
+    // The background is NOT here: it is FLAT in tools/make_bezel_layers.py, and
+    // changing it means regenerating the layers.
+    // See README.md for what each one touches and when a rebuild is enough.
+    readonly property color ringColor: "#0a76cc" // the neon gauge light
+    readonly property color accent: "#00d4ff"       // KM/H, KW, SOC, KM TOTAL
+    readonly property color textColor: "white"      // every readout and label
+    readonly property color scaleColor: "#8ea3ba"   // the 0..240 / 0..6 numbers
+    readonly property color gearIdleColor: "#4c5c70" // the gears not selected
+    readonly property color faultColor: "#ff2b2b"   // telltales and motor lamp
 
     // Smoothed backend values, shared by the readouts and the neon glow so the
     // number and the light ramp together instead of snapping between frames.
@@ -141,6 +160,33 @@ Window {
         fillMode: Image.Stretch
         smooth: true
         mipmap: true
+    }
+
+    // The ring's always-on baseline, split out of the base so it can be tinted
+    // with the lit part. Without the split the unlit ring keeps the artwork's
+    // blue and shows as a blue outline above wherever the light has reached.
+    Image {
+        id: ringBaseImage
+        x: root.artX
+        y: root.artY
+        width: root.artW
+        height: root.artH
+        source: "qrc:/images/images/cluster_ring_base.png"
+        fillMode: Image.Stretch
+        smooth: true
+        mipmap: true
+        visible: false
+        layer.enabled: true
+    }
+
+    MultiEffect {
+        x: root.artX
+        y: root.artY
+        width: root.artW
+        height: root.artH
+        source: ringBaseImage
+        colorization: 1.0
+        colorizationColor: root.ringColor
     }
 
     // The lane graphic, split out of the base by tools/make_bezel_layers.py so
@@ -289,6 +335,8 @@ Window {
         width: root.artW
         height: root.artH
         source: glowImage
+        colorization: 1.0
+        colorizationColor: root.ringColor
         maskEnabled: true
         maskSource: glowMask
         // MultiEffect ramps the mask as
@@ -329,7 +377,7 @@ Window {
         model: root.scaleValues.length
         delegate: Text {
             text: root.scaleValues[index]
-            color: "#8ea3ba"
+            color: root.scaleColor
             font.pixelSize: root.artUnitH * 0.032
             font.family: "Century Gothic"
             x: root.artX + root.artW * (root.scaleLX[index] + root.scaleInsetX) - width / 2
@@ -349,7 +397,7 @@ Window {
         delegate: Text {
             id: rightLabel
             text: root.scaleValuesRight[index]
-            color: "#8ea3ba"
+            color: root.scaleColor
             font.pixelSize: root.artUnitH * 0.032
             font.family: "Century Gothic"
 
@@ -385,7 +433,7 @@ Window {
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: value
-            color: "white"
+            color: root.textColor
             opacity: 0.92
             font.pixelSize: root.artUnitH * 0.055
             font.family: "Century Gothic"
@@ -393,7 +441,7 @@ Window {
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: caption
-            color: root.cyan
+            color: root.accent
             opacity: 0.75
             font.pixelSize: root.artUnitH * 0.026
             font.weight: Font.Bold
@@ -464,7 +512,7 @@ Window {
             source: img
             anchors.fill: img
             colorization: lamp.active ? 1.0 : 0.0
-            colorizationColor: "#ff2b2b"
+            colorizationColor: root.faultColor
             // Full opacity in both states: idle reads as the PNG's own white,
             // raised as solid red. Only the flicker takes it below 1.
             opacity: 1.0
@@ -642,7 +690,7 @@ Window {
             width: parent.width * 0.52
             height: width
             radius: width / 2
-            color: "#ff2b2b"
+            color: root.faultColor
         }
     }
 
@@ -688,7 +736,7 @@ Window {
         // White, not red: the lamp on the car already carries the alarm, and a
         // red banner on top of it read as shouty. Black was tried and is
         // unreadable — it lands 36 levels off the lens background.
-        color: "white"
+        color: root.textColor
         visible: root.errorKind !== ""
         font.pixelSize: root.artUnitH * 0.036
         font.family: "Century Gothic"
@@ -712,7 +760,7 @@ Window {
             model: ["P", "N", "R"]
             delegate: Text {
                 text: modelData
-                color: modelData === root.gear ? "white" : "#4c5c70"
+                color: modelData === root.gear ? root.textColor : root.gearIdleColor
                 font.pixelSize: root.artUnitH * 0.055
                 font.weight: modelData === root.gear ? Font.Bold : Font.Light
                 font.letterSpacing: 1
@@ -740,7 +788,7 @@ Window {
             anchors.horizontalCenter: parent.horizontalCenter
             y: 0
             text: ro.value
-            color: "white"
+            color: root.textColor
             font.pixelSize: screen.unitH * 0.28
             font.weight: Font.ExtraLight
             font.family: "Century Gothic"
@@ -751,7 +799,7 @@ Window {
             anchors.top: num.bottom
             anchors.topMargin: -screen.unitH * 0.055
             text: ro.unit
-            color: root.cyan
+            color: root.accent
             font.pixelSize: screen.unitH * 0.07
             font.weight: Font.Bold
             font.letterSpacing: 5
@@ -763,7 +811,7 @@ Window {
             anchors.top: unitText.bottom
             anchors.topMargin: screen.unitH * 0.02
             text: ro.caption
-            color: "white"
+            color: root.textColor
             opacity: 0.45
             font.pixelSize: screen.unitH * 0.045
             font.letterSpacing: 3
@@ -818,7 +866,7 @@ Window {
             width: Math.min(implicitWidth, root.artW * 0.30)
             elide: Text.ElideRight
             text: root.trackTitle
-            color: "white"
+            color: root.textColor
             opacity: 0.85
             font.pixelSize: root.artUnitH * 0.030
             font.family: "Century Gothic"
@@ -829,7 +877,7 @@ Window {
             // Elapsed only. There is no duration behind it to make a remaining
             // time or a progress bar honest.
             text: root.formatElapsed(root.trackElapsed)
-            color: "white"
+            color: root.textColor
             opacity: 0.45
             font.pixelSize: trackName.font.pixelSize
             font.family: "Century Gothic"
@@ -860,7 +908,7 @@ Window {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
             anchors.topMargin: 0
-            color: "white"
+            color: root.textColor
             opacity: 0.85
             font.pixelSize: screen.unitH * 0.09
             font.family: "Century Gothic"
