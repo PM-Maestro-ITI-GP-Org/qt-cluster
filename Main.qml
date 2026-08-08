@@ -86,6 +86,11 @@ Window {
     readonly property real screenTopFrac: 0.235
     readonly property real screenBottomFrac: 0.783
 
+    // SOC and KM TOTAL. Pulled up from 0.905: the vertical stretch moved this
+    // row down with the artwork and left it 7px off the bottom edge, which is
+    // no margin at all on a panel with any overscan.
+    readonly property real bottomRowY: 0.882
+
     // Speed at which the neon ring reaches full brightness.
     readonly property real glowTopSpeed: 250
 
@@ -100,13 +105,28 @@ Window {
     // bezelScale over 1 lets the artwork spill past the window edges so the
     // shape reads larger on a small panel. Only the artwork's empty margins go
     // off-screen: the ring occupies 0.113..0.887 of the width, so it stays
-    // fully visible up to a scale of about 1.29. Aspect is always preserved —
-    // the source is 2.29:1 and stretching visibly distorts the bezel.
+    // fully visible up to a scale of about 1.29 — which is not enough to fill
+    // a 1.71:1 panel with 2.29:1 artwork, so the height is stretched instead.
+    //
+    // Two heights, and the difference is the whole trick:
+    //
+    //   artH      what the artwork is drawn at, so it fills the panel.
+    //   artUnitH  what it would be at true aspect.
+    //
+    // POSITIONS are fractions of artH, so they keep tracking the artwork
+    // feature they were tuned against as it stretches. SIZES are fractions of
+    // artUnitH, because everything overlaid has its own aspect — glyphs, icons,
+    // both cars — and measuring them against a stretched height would make them
+    // proportionally wider too. That widening is what would wreck the layout;
+    // the stretch itself only touches the three artwork layers.
     readonly property real bezelScale: 1.18
     readonly property real artW: width * bezelScale
-    readonly property real artH: artW * (447 / 1024)
+    readonly property real artUnitH: artW * (447 / 1024)
+    readonly property real artH: height
     readonly property real artX: (width - artW) / 2
     readonly property real artY: (height - artH) / 2
+    // ~1.14 at 1024x600. Drop artH back to artUnitH to undo the stretch.
+    readonly property real bezelStretch: artH / artUnitH
 
     Image {
         id: bezel
@@ -115,7 +135,10 @@ Window {
         width: root.artW
         height: root.artH
         source: "qrc:/images/images/cluster_bezel_base.png"
-        fillMode: Image.PreserveAspectFit
+        // Stretch, not PreserveAspectFit: the rect is taller than the source's
+        // aspect on purpose, and PreserveAspectFit would just letterbox inside
+        // it and undo that.
+        fillMode: Image.Stretch
         smooth: true
         mipmap: true
     }
@@ -130,7 +153,7 @@ Window {
         width: root.artW
         height: root.artH
         source: "qrc:/images/images/cluster_road.png"
-        fillMode: Image.PreserveAspectFit
+        fillMode: Image.Stretch
         smooth: true
         mipmap: true
         opacity: root.faultMode ? 0.0 : 1.0
@@ -225,7 +248,7 @@ Window {
         width: root.artW
         height: root.artH
         source: "qrc:/images/images/cluster_bezel_glow.png"
-        fillMode: Image.PreserveAspectFit
+        fillMode: Image.Stretch
         smooth: true
         mipmap: true
         visible: false
@@ -307,7 +330,7 @@ Window {
         delegate: Text {
             text: root.scaleValues[index]
             color: "#8ea3ba"
-            font.pixelSize: root.artH * 0.032
+            font.pixelSize: root.artUnitH * 0.032
             font.family: "Century Gothic"
             x: root.artX + root.artW * (root.scaleLX[index] + root.scaleInsetX) - width / 2
             y: root.artY + root.artH * root.scaleY[index] - height / 2
@@ -327,7 +350,7 @@ Window {
             id: rightLabel
             text: root.scaleValuesRight[index]
             color: "#8ea3ba"
-            font.pixelSize: root.artH * 0.032
+            font.pixelSize: root.artUnitH * 0.032
             font.family: "Century Gothic"
 
             // Width of the left-hand label at the same position. The right
@@ -357,14 +380,14 @@ Window {
     component CornerStat: Column {
         property string value: ""
         property string caption: ""
-        spacing: root.artH * 0.004
+        spacing: root.artUnitH * 0.004
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: value
             color: "white"
             opacity: 0.92
-            font.pixelSize: root.artH * 0.055
+            font.pixelSize: root.artUnitH * 0.055
             font.family: "Century Gothic"
         }
         Text {
@@ -372,7 +395,7 @@ Window {
             text: caption
             color: root.cyan
             opacity: 0.75
-            font.pixelSize: root.artH * 0.026
+            font.pixelSize: root.artUnitH * 0.026
             font.weight: Font.Bold
             font.letterSpacing: 2
             font.family: "Century Gothic"
@@ -381,14 +404,14 @@ Window {
 
     CornerStat {
         x: root.artX + root.artW * 0.225 - width / 2
-        y: root.artY + root.artH * 0.905
+        y: root.artY + root.artH * root.bottomRowY
         value: Math.round(root.soc) + "%"
         caption: "SOC"
     }
 
     CornerStat {
         x: root.artX + root.artW * 0.775 - width / 2
-        y: root.artY + root.artH * 0.905
+        y: root.artY + root.artH * root.bottomRowY
         value: Math.round(root.odoKm).toLocaleString(Qt.locale("en_US"), "f", 0)
         caption: "KM TOTAL"
     }
@@ -465,7 +488,7 @@ Window {
     }
 
     // Two per side in the upper corners, following the ring's shoulder.
-    readonly property real telltaleSize: root.artH * 0.038
+    readonly property real telltaleSize: root.artUnitH * 0.038
     readonly property var telltaleX: [0.1771, 0.2318, 0.7682, 0.8229]
     readonly property var telltaleY: [0.2495, 0.2153, 0.2153, 0.2495]
 
@@ -530,18 +553,18 @@ Window {
     // but is held down at the bottom: past about 0.86 of artH the tail crosses
     // the arc the gear indicator hangs off. Raising the centre is what buys the
     // extra size — the two have to move together.
-    readonly property real carHeight: 0.18      // fraction of artH
-    readonly property real carY: 340            // window px, top of the rear view
-    readonly property real faultCarHeight: 0.38 // fraction of artH
+    readonly property real carHeight: 0.18      // fraction of artUnitH
+    readonly property real carY: 0.576          // fraction of artH, top of the rear view
+    readonly property real faultCarHeight: 0.38 // fraction of artUnitH
     readonly property real faultCarCentreY: 0.58
 
     Image {
         id: carRear
         source: "qrc:/images/images/car_top.png"
-        height: root.artH * root.carHeight
+        height: root.artUnitH * root.carHeight
         width: height * (702 / 510)             // the source's trimmed aspect
         x: root.artX + root.artW * 0.5 - width / 2
-        y: root.carY
+        y: root.artY + root.artH * root.carY
         fillMode: Image.PreserveAspectFit
         smooth: true
         mipmap: true
@@ -556,7 +579,7 @@ Window {
 
     Image {
         source: "qrc:/images/images/car_fault_top.png"
-        height: root.artH * root.faultCarHeight
+        height: root.artUnitH * root.faultCarHeight
         width: height * (251 / 600)             // the source's trimmed aspect
         x: root.artX + root.artW * 0.5 - width / 2
         y: root.artY + root.artH * root.faultCarCentreY - height / 2
@@ -589,7 +612,7 @@ Window {
             delegate: Text {
                 text: modelData
                 color: modelData === root.gear ? "white" : "#4c5c70"
-                font.pixelSize: root.artH * 0.055
+                font.pixelSize: root.artUnitH * 0.055
                 font.weight: modelData === root.gear ? Font.Bold : Font.Light
                 font.letterSpacing: 1
                 font.family: "Century Gothic"
@@ -597,7 +620,8 @@ Window {
         }
     }
 
-    // A number with its unit and caption, sized off the lens height.
+    // A number with its unit and caption, sized off the lens height at true
+    // aspect (screen.unitH), so the stretch does not widen the glyphs.
     // Explicit anchors rather than a Column: the gap under the big number has
     // to close up against its font leading, and a Column's spacing would apply
     // that same negative gap to the caption too and overlap it.
@@ -616,7 +640,7 @@ Window {
             y: 0
             text: ro.value
             color: "white"
-            font.pixelSize: screen.h * 0.28
+            font.pixelSize: screen.unitH * 0.28
             font.weight: Font.ExtraLight
             font.family: "Century Gothic"
         }
@@ -624,10 +648,10 @@ Window {
             id: unitText
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: num.bottom
-            anchors.topMargin: -screen.h * 0.055
+            anchors.topMargin: -screen.unitH * 0.055
             text: ro.unit
             color: root.cyan
-            font.pixelSize: screen.h * 0.07
+            font.pixelSize: screen.unitH * 0.07
             font.weight: Font.Bold
             font.letterSpacing: 5
             font.family: "Century Gothic"
@@ -636,13 +660,80 @@ Window {
             id: cap
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: unitText.bottom
-            anchors.topMargin: screen.h * 0.02
+            anchors.topMargin: screen.unitH * 0.02
             text: ro.caption
             color: "white"
             opacity: 0.45
-            font.pixelSize: screen.h * 0.045
+            font.pixelSize: screen.unitH * 0.045
             font.letterSpacing: 3
             font.family: "Century Gothic"
+        }
+    }
+
+    // --- Now playing ---------------------------------------------------------
+    // Nothing feeds these yet — there is no media source in this project and no
+    // link to the head unit. Bind them to one and the strip appears; an empty
+    // title hides it, which is also what "nothing is playing" should look like.
+    //
+    // trackElapsed is seconds. It is a plain value rather than something that
+    // counts itself, so whatever owns playback stays the single source of
+    // truth and a pause does not need a second signal to stop a local timer.
+    property string trackTitle: demoMode ? "Midnight City — M83" : ""
+    property int trackElapsed: 0
+
+    function formatElapsed(seconds) {
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return m + ":" + (s < 10 ? "0" : "") + s;
+    }
+
+    // Demo only: walks the position so the strip is not frozen at 0:00.
+    Timer {
+        interval: 1000
+        running: demoMode
+        repeat: true
+        onTriggered: root.trackElapsed = (root.trackElapsed + 1) % 244
+    }
+
+    // Above the clock, in the empty band over the lens. Placed against the
+    // artwork like the telltales rather than inside the lit region, because
+    // that region starts at the clock and this sits outside it.
+    //
+    // One row: name and elapsed at the same size, told apart by opacity, the
+    // way the gear row does it. Different sizes here would need baseline
+    // alignment, which a Row does not give.
+    readonly property real trackY: 0.17         // fraction of artH, row centre
+
+    Row {
+        x: root.artX + root.artW * 0.5 - width / 2
+        y: root.artY + root.artH * root.trackY - height / 2
+        spacing: root.artW * 0.019
+        visible: root.trackTitle !== ""
+
+        Text {
+            id: trackName
+            // Capped, so a long title elides instead of running out under the
+            // telltales in the corners.
+            width: Math.min(implicitWidth, root.artW * 0.30)
+            elide: Text.ElideRight
+            text: root.trackTitle
+            color: "white"
+            opacity: 0.85
+            font.pixelSize: root.artUnitH * 0.030
+            font.family: "Century Gothic"
+            font.weight: Font.Light
+        }
+
+        Text {
+            // Elapsed only. There is no duration behind it to make a remaining
+            // time or a progress bar honest.
+            text: root.formatElapsed(root.trackElapsed)
+            color: "white"
+            opacity: 0.45
+            font.pixelSize: trackName.font.pixelSize
+            font.family: "Century Gothic"
+            font.weight: Font.Light
+            font.letterSpacing: 1
         }
     }
 
@@ -656,6 +747,10 @@ Window {
 
         readonly property real w: width
         readonly property real h: height
+        // The same band at the artwork's true aspect. Type inside the lens is
+        // sized off this, not off h, so the vertical stretch does not scale the
+        // glyphs up in both directions.
+        readonly property real unitH: root.artUnitH * (root.screenBottomFrac - root.screenTopFrac)
 
         // Clock, sitting just below the moulding drawn into the top of the lens
         // artwork so it doesn't collide with it.
@@ -666,7 +761,7 @@ Window {
             anchors.topMargin: 0
             color: "white"
             opacity: 0.85
-            font.pixelSize: screen.h * 0.09
+            font.pixelSize: screen.unitH * 0.09
             font.family: "Century Gothic"
             font.weight: Font.Light
             font.letterSpacing: 2
@@ -682,6 +777,7 @@ Window {
             repeat: true
             onTriggered: clock.tick()
         }
+
 
         Readout {
             x: screen.w * 0.22 - width / 2
