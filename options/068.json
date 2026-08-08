@@ -1,0 +1,22 @@
+{
+  "id": "068",
+  "name": "plum-magenta",
+  "background": "plum",
+  "hue": "magenta",
+  "light": false,
+  "flat": [
+    20,
+    12,
+    26
+  ],
+  "window": "#140c1a",
+  "ringColor": "#ff3399",
+  "accent": "#ff6cb6",
+  "textColor": "white",
+  "scaleColor": "#b89aa9",
+  "gearIdleColor": "#5c4450",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff3399",
+  "carTintStrength": 0.18
+}

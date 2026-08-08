@@ -1,0 +1,22 @@
+{
+  "id": "042",
+  "name": "charcoal-indigo",
+  "background": "charcoal",
+  "hue": "indigo",
+  "light": false,
+  "flat": [
+    18,
+    18,
+    20
+  ],
+  "window": "#121214",
+  "ringColor": "#4040ff",
+  "accent": "#7575ff",
+  "textColor": "white",
+  "scaleColor": "#9a9ab8",
+  "gearIdleColor": "#44445c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#4040ff",
+  "carTintStrength": 0.18
+}

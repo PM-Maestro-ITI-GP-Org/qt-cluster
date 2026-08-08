@@ -1,0 +1,22 @@
+{
+  "id": "036",
+  "name": "charcoal-amber",
+  "background": "charcoal",
+  "hue": "amber",
+  "light": false,
+  "flat": [
+    18,
+    18,
+    20
+  ],
+  "window": "#121214",
+  "ringColor": "#ffa914",
+  "accent": "#ffc156",
+  "textColor": "white",
+  "scaleColor": "#b8ad9a",
+  "gearIdleColor": "#5c5344",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ffa914",
+  "carTintStrength": 0.18
+}

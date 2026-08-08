@@ -1,0 +1,22 @@
+{
+  "id": "062",
+  "name": "plum-lime",
+  "background": "plum",
+  "hue": "lime",
+  "light": false,
+  "flat": [
+    20,
+    12,
+    26
+  ],
+  "window": "#140c1a",
+  "ringColor": "#a0ff33",
+  "accent": "#baff6c",
+  "textColor": "white",
+  "scaleColor": "#aab89a",
+  "gearIdleColor": "#515c44",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#a0ff33",
+  "carTintStrength": 0.18
+}

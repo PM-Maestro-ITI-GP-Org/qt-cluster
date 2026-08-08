@@ -1,0 +1,22 @@
+{
+  "id": "054",
+  "name": "deepteal-magenta",
+  "background": "deepteal",
+  "hue": "magenta",
+  "light": false,
+  "flat": [
+    5,
+    26,
+    31
+  ],
+  "window": "#051a1f",
+  "ringColor": "#ff3399",
+  "accent": "#ff6cb6",
+  "textColor": "white",
+  "scaleColor": "#b89aa9",
+  "gearIdleColor": "#5c4450",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff3399",
+  "carTintStrength": 0.18
+}

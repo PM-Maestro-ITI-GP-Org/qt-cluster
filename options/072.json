@@ -1,0 +1,22 @@
+{
+  "id": "072",
+  "name": "slate-cyan",
+  "background": "slate",
+  "hue": "cyan",
+  "light": false,
+  "flat": [
+    16,
+    20,
+    26
+  ],
+  "window": "#10141a",
+  "ringColor": "#00e5ff",
+  "accent": "#47edff",
+  "textColor": "white",
+  "scaleColor": "#9ab5b8",
+  "gearIdleColor": "#44595c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#00e5ff",
+  "carTintStrength": 0.18
+}

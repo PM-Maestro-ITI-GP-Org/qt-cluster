@@ -1,0 +1,22 @@
+{
+  "id": "004",
+  "name": "black-mint",
+  "background": "black",
+  "hue": "mint",
+  "light": false,
+  "flat": [
+    0,
+    0,
+    0
+  ],
+  "window": "#000000",
+  "ringColor": "#1fffad",
+  "accent": "#5dffc4",
+  "textColor": "white",
+  "scaleColor": "#9ab8ad",
+  "gearIdleColor": "#445c53",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#1fffad",
+  "carTintStrength": 0.18
+}

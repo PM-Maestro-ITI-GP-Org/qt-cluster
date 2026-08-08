@@ -1,0 +1,22 @@
+{
+  "id": "015",
+  "name": "navy-azure",
+  "background": "navy",
+  "hue": "azure",
+  "light": false,
+  "flat": [
+    13,
+    20,
+    36
+  ],
+  "window": "#0d1424",
+  "ringColor": "#0d96ff",
+  "accent": "#51b3ff",
+  "textColor": "white",
+  "scaleColor": "#9aabb8",
+  "gearIdleColor": "#44515c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#0d96ff",
+  "carTintStrength": 0.18
+}

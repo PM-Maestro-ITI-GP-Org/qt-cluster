@@ -1,0 +1,22 @@
+{
+  "id": "038",
+  "name": "charcoal-coral",
+  "background": "charcoal",
+  "hue": "coral",
+  "light": false,
+  "flat": [
+    18,
+    18,
+    20
+  ],
+  "window": "#121214",
+  "ringColor": "#ff582e",
+  "accent": "#ff8768",
+  "textColor": "white",
+  "scaleColor": "#b8a09a",
+  "gearIdleColor": "#5c4944",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff582e",
+  "carTintStrength": 0.18
+}

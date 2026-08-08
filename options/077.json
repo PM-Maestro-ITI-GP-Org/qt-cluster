@@ -1,0 +1,22 @@
+{
+  "id": "077",
+  "name": "slate-gold",
+  "background": "slate",
+  "hue": "gold",
+  "light": false,
+  "flat": [
+    16,
+    20,
+    26
+  ],
+  "window": "#10141a",
+  "ringColor": "#ffd119",
+  "accent": "#ffde5a",
+  "textColor": "white",
+  "scaleColor": "#b8b29a",
+  "gearIdleColor": "#5c5744",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ffd119",
+  "carTintStrength": 0.18
+}

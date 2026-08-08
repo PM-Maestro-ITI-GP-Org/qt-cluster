@@ -1,0 +1,22 @@
+{
+  "id": "051",
+  "name": "deepteal-orange",
+  "background": "deepteal",
+  "hue": "orange",
+  "light": false,
+  "flat": [
+    5,
+    26,
+    31
+  ],
+  "window": "#051a1f",
+  "ringColor": "#ff7919",
+  "accent": "#ff9f5a",
+  "textColor": "white",
+  "scaleColor": "#b8a69a",
+  "gearIdleColor": "#5c4e44",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff7919",
+  "carTintStrength": 0.18
+}

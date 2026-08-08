@@ -1,0 +1,22 @@
+{
+  "id": "071",
+  "name": "slate-azure",
+  "background": "slate",
+  "hue": "azure",
+  "light": false,
+  "flat": [
+    16,
+    20,
+    26
+  ],
+  "window": "#10141a",
+  "ringColor": "#0d96ff",
+  "accent": "#51b3ff",
+  "textColor": "white",
+  "scaleColor": "#9aabb8",
+  "gearIdleColor": "#44515c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#0d96ff",
+  "carTintStrength": 0.18
+}

@@ -33,12 +33,20 @@ Window {
     // The background is NOT here: it is FLAT in tools/make_bezel_layers.py, and
     // changing it means regenerating the layers.
     // See README.md for what each one touches and when a rebuild is enough.
-    readonly property color ringColor: "#0a76cc" // the neon gauge light
+    readonly property color ringColor: "#0d96ff" // the neon gauge light
     readonly property color accent: "#00d4ff"       // KM/H, KW, SOC, KM TOTAL
     readonly property color textColor: "white"      // every readout and label
     readonly property color scaleColor: "#8ea3ba"   // the 0..240 / 0..6 numbers
     readonly property color gearIdleColor: "#4c5c70" // the gears not selected
     readonly property color faultColor: "#ff2b2b"   // telltales and motor lamp
+    readonly property color iconColor: "white"      // the telltales while idle
+
+    // The car photographs are near-white, so they can be pushed to any body
+    // colour by colorizing them — luminance is preserved, so the panel shading,
+    // the glass and the wheels all survive. Strength 0 leaves the photo alone;
+    // much past 0.5 the glass starts taking the body colour too.
+    readonly property color carTint: "white"
+    readonly property real carTintStrength: 0.0
 
     // Smoothed backend values, shared by the readouts and the neon glow so the
     // number and the light ramp together instead of snapping between frames.
@@ -511,10 +519,13 @@ Window {
             id: tint
             source: img
             anchors.fill: img
-            colorization: lamp.active ? 1.0 : 0.0
-            colorizationColor: root.faultColor
-            // Full opacity in both states: idle reads as the PNG's own white,
-            // raised as solid red. Only the flicker takes it below 1.
+            // Colorized in both states, not just when raised: on a light
+            // scheme the PNGs' own white would disappear into the background.
+            // Colorizing to white is a no-op, so dark schemes are unaffected.
+            colorization: 1.0
+            colorizationColor: lamp.active ? root.faultColor : root.iconColor
+            // Full opacity in both states: idle reads as iconColor, raised as
+            // faultColor. Only the flicker takes it below 1.
             opacity: 1.0
 
             // Flicker only while raised; snap back to full after, so a lamp
@@ -616,6 +627,11 @@ Window {
         fillMode: Image.PreserveAspectFit
         smooth: true
         mipmap: true
+        layer.enabled: root.carTintStrength > 0
+        layer.effect: MultiEffect {
+            colorization: root.carTintStrength
+            colorizationColor: root.carTint
+        }
         opacity: root.faultMode ? 0.0 : 1.0
         visible: opacity > 0
         Behavior on opacity {
@@ -635,6 +651,11 @@ Window {
         fillMode: Image.PreserveAspectFit
         smooth: true
         mipmap: true
+        layer.enabled: root.carTintStrength > 0
+        layer.effect: MultiEffect {
+            colorization: root.carTintStrength
+            colorizationColor: root.carTint
+        }
         opacity: root.faultMode ? 1.0 : 0.0
         visible: opacity > 0
         Behavior on opacity {
@@ -654,19 +675,40 @@ Window {
     // current is electrical; an overspeed is the motor running away, so it goes
     // with mechanical. tempWarning and voltageWarning are left out: both are
     // hardcoded false in cluster.h and would only look wired.
-    readonly property string errorKind: {
-        if (Vehicle.vibWarning || Vehicle.speedWarning || root.faultEngine || root.faultAbs)
-            return "MECHANICAL";
+    // Kind and symbol come out of one decision rather than two parallel ones,
+    // so the banner and the icon in the lamp can never name different faults.
+    // First match wins, so a mechanical fault outranks an electrical one when
+    // both are up — the motor is the more urgent of the two.
+    readonly property var activeFault: {
+        if (Vehicle.vibWarning || Vehicle.speedWarning || root.faultEngine)
+            return {
+                kind: "MECHANICAL",
+                icon: "telltale_engine"
+            };
+        if (root.faultAbs)
+            return {
+                kind: "MECHANICAL",
+                icon: "telltale_abs"
+            };
         if (Vehicle.currentWarning || root.faultBattery)
-            return "ELECTRICAL";
-        return "";
+            return {
+                kind: "ELECTRICAL",
+                icon: "telltale_battery"
+            };
+        return {
+            kind: "",
+            icon: ""
+        };
     }
+    readonly property string errorKind: root.activeFault.kind
+    readonly property string errorIcon: root.activeFault.icon
 
     // Fraction of the overhead car's own height. The nose is at 0, so 0.85 is
     // over the rear axle — the Mission E's drive unit, and the dark deck panel
     // there takes the red better than bodywork would.
     readonly property real motorY: 0.85
-    readonly property real errorTextY: 0.355   // fraction of artH
+    readonly property real motorIconSize: 0.52  // fraction of the car's width
+    readonly property real errorTextY: 0.355    // fraction of artH
 
     // Blurred rather than drawn with a gradient: MultiEffect is already how the
     // ring and the telltales are lit, and QtQuick has no radial gradient
@@ -727,6 +769,24 @@ Window {
             }
             onStopped: motorGlow.opacity = 0.75
         }
+    }
+
+    // The faulting part's own symbol, sitting in the lamp. Reuses the telltale
+    // artwork, so the icon in the glow and the lamp that lit in the corner are
+    // the same drawing and read as the same fault.
+    //
+    // Steady while the glow breathes underneath it: pulsing both makes the
+    // symbol hard to identify at exactly the moment it matters.
+    Image {
+        source: root.errorIcon === "" ? "" : "qrc:/images/images/" + root.errorIcon + ".png"
+        width: carTop.width * root.motorIconSize
+        height: width
+        x: carTop.x + carTop.width / 2 - width / 2
+        y: carTop.y + carTop.height * root.motorY - height / 2
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+        mipmap: true
+        visible: root.errorIcon !== "" && carTop.visible
     }
 
     Text {

@@ -1,0 +1,22 @@
+{
+  "id": "007",
+  "name": "black-gold",
+  "background": "black",
+  "hue": "gold",
+  "light": false,
+  "flat": [
+    0,
+    0,
+    0
+  ],
+  "window": "#000000",
+  "ringColor": "#ffd119",
+  "accent": "#ffde5a",
+  "textColor": "white",
+  "scaleColor": "#b8b29a",
+  "gearIdleColor": "#5c5744",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ffd119",
+  "carTintStrength": 0.18
+}

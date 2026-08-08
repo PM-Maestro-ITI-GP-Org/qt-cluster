@@ -1,0 +1,22 @@
+{
+  "id": "013",
+  "name": "black-violet",
+  "background": "black",
+  "hue": "violet",
+  "light": false,
+  "flat": [
+    0,
+    0,
+    0
+  ],
+  "window": "#000000",
+  "ringColor": "#9447ff",
+  "accent": "#b27bff",
+  "textColor": "white",
+  "scaleColor": "#a69ab8",
+  "gearIdleColor": "#4e445c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#9447ff",
+  "carTintStrength": 0.18
+}

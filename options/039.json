@@ -1,0 +1,22 @@
+{
+  "id": "039",
+  "name": "charcoal-red",
+  "background": "charcoal",
+  "hue": "red",
+  "light": false,
+  "flat": [
+    18,
+    18,
+    20
+  ],
+  "window": "#121214",
+  "ringColor": "#ff2d26",
+  "accent": "#ff6863",
+  "textColor": "white",
+  "scaleColor": "#b89b9a",
+  "gearIdleColor": "#5c4544",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff2d26",
+  "carTintStrength": 0.18
+}

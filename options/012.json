@@ -1,0 +1,22 @@
+{
+  "id": "012",
+  "name": "black-magenta",
+  "background": "black",
+  "hue": "magenta",
+  "light": false,
+  "flat": [
+    0,
+    0,
+    0
+  ],
+  "window": "#000000",
+  "ringColor": "#ff3399",
+  "accent": "#ff6cb6",
+  "textColor": "white",
+  "scaleColor": "#b89aa9",
+  "gearIdleColor": "#5c4450",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff3399",
+  "carTintStrength": 0.18
+}

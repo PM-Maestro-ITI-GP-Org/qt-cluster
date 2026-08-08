@@ -1,0 +1,22 @@
+{
+  "id": "055",
+  "name": "deepteal-violet",
+  "background": "deepteal",
+  "hue": "violet",
+  "light": false,
+  "flat": [
+    5,
+    26,
+    31
+  ],
+  "window": "#051a1f",
+  "ringColor": "#9447ff",
+  "accent": "#b27bff",
+  "textColor": "white",
+  "scaleColor": "#a69ab8",
+  "gearIdleColor": "#4e445c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#9447ff",
+  "carTintStrength": 0.18
+}

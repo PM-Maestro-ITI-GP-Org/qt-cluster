@@ -1,0 +1,22 @@
+{
+  "id": "081",
+  "name": "slate-red",
+  "background": "slate",
+  "hue": "red",
+  "light": false,
+  "flat": [
+    16,
+    20,
+    26
+  ],
+  "window": "#10141a",
+  "ringColor": "#ff2d26",
+  "accent": "#ff6863",
+  "textColor": "white",
+  "scaleColor": "#b89b9a",
+  "gearIdleColor": "#5c4544",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff2d26",
+  "carTintStrength": 0.18
+}

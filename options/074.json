@@ -1,0 +1,22 @@
+{
+  "id": "074",
+  "name": "slate-mint",
+  "background": "slate",
+  "hue": "mint",
+  "light": false,
+  "flat": [
+    16,
+    20,
+    26
+  ],
+  "window": "#10141a",
+  "ringColor": "#1fffad",
+  "accent": "#5dffc4",
+  "textColor": "white",
+  "scaleColor": "#9ab8ad",
+  "gearIdleColor": "#445c53",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#1fffad",
+  "carTintStrength": 0.18
+}

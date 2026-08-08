@@ -1,0 +1,22 @@
+{
+  "id": "058",
+  "name": "plum-cyan",
+  "background": "plum",
+  "hue": "cyan",
+  "light": false,
+  "flat": [
+    20,
+    12,
+    26
+  ],
+  "window": "#140c1a",
+  "ringColor": "#00e5ff",
+  "accent": "#47edff",
+  "textColor": "white",
+  "scaleColor": "#9ab5b8",
+  "gearIdleColor": "#44595c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#00e5ff",
+  "carTintStrength": 0.18
+}

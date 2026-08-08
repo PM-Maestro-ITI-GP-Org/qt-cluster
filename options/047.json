@@ -1,0 +1,22 @@
+{
+  "id": "047",
+  "name": "deepteal-green",
+  "background": "deepteal",
+  "hue": "green",
+  "light": false,
+  "flat": [
+    5,
+    26,
+    31
+  ],
+  "window": "#051a1f",
+  "ringColor": "#26ff81",
+  "accent": "#63ffa4",
+  "textColor": "white",
+  "scaleColor": "#9ab8a6",
+  "gearIdleColor": "#445c4e",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#26ff81",
+  "carTintStrength": 0.18
+}

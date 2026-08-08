@@ -1,0 +1,22 @@
+{
+  "id": "080",
+  "name": "slate-coral",
+  "background": "slate",
+  "hue": "coral",
+  "light": false,
+  "flat": [
+    16,
+    20,
+    26
+  ],
+  "window": "#10141a",
+  "ringColor": "#ff582e",
+  "accent": "#ff8768",
+  "textColor": "white",
+  "scaleColor": "#b8a09a",
+  "gearIdleColor": "#5c4944",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff582e",
+  "carTintStrength": 0.18
+}

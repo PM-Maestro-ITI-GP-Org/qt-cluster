@@ -1,0 +1,22 @@
+{
+  "id": "009",
+  "name": "black-orange",
+  "background": "black",
+  "hue": "orange",
+  "light": false,
+  "flat": [
+    0,
+    0,
+    0
+  ],
+  "window": "#000000",
+  "ringColor": "#ff7919",
+  "accent": "#ff9f5a",
+  "textColor": "white",
+  "scaleColor": "#b8a69a",
+  "gearIdleColor": "#5c4e44",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff7919",
+  "carTintStrength": 0.18
+}

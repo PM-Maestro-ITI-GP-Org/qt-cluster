@@ -1,0 +1,22 @@
+{
+  "id": "010",
+  "name": "black-coral",
+  "background": "black",
+  "hue": "coral",
+  "light": false,
+  "flat": [
+    0,
+    0,
+    0
+  ],
+  "window": "#000000",
+  "ringColor": "#ff582e",
+  "accent": "#ff8768",
+  "textColor": "white",
+  "scaleColor": "#b8a09a",
+  "gearIdleColor": "#5c4944",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff582e",
+  "carTintStrength": 0.18
+}

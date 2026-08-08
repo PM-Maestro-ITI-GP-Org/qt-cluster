@@ -1,0 +1,22 @@
+{
+  "id": "025",
+  "name": "navy-red",
+  "background": "navy",
+  "hue": "red",
+  "light": false,
+  "flat": [
+    13,
+    20,
+    36
+  ],
+  "window": "#0d1424",
+  "ringColor": "#ff2d26",
+  "accent": "#ff6863",
+  "textColor": "white",
+  "scaleColor": "#b89b9a",
+  "gearIdleColor": "#5c4544",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff2d26",
+  "carTintStrength": 0.18
+}
