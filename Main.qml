@@ -19,7 +19,7 @@ Window {
     // Since the stretch, the artwork covers the window edge to edge, so this is
     // no longer what you see behind it — FLAT is. Changing it here on its own
     // has no visible effect; the layers have to be regenerated to match.
-    color: "black"
+    color: "#030812"
 
     Material.theme: Material.Dark
 
@@ -33,8 +33,8 @@ Window {
     // The background is NOT here: it is FLAT in tools/make_bezel_layers.py, and
     // changing it means regenerating the layers.
     // See README.md for what each one touches and when a rebuild is enough.
-    readonly property color ringColor: "#0d96ff" // the neon gauge light
-    readonly property color accent: "#00d4ff"       // KM/H, KW, SOC, KM TOTAL
+    readonly property color ringColor: "#6cdaff" // the neon gauge light
+    readonly property color accent: "#8ce2ff"       // KM/H, KW, SOC, KM TOTAL
     readonly property color textColor: "white"      // every readout and label
     readonly property color scaleColor: "#8ea3ba"   // the 0..240 / 0..6 numbers
     readonly property color gearIdleColor: "#4c5c70" // the gears not selected
@@ -619,9 +619,9 @@ Window {
 
     Image {
         id: carRear
-        source: "qrc:/images/images/car_top.png"
+        source: "qrc:/images/images/car_rear.png"
         height: root.artUnitH * root.carHeight
-        width: height * (702 / 510)             // the source's trimmed aspect
+        width: height * (800 / 513)             // the source's trimmed aspect
         x: root.artX + root.artW * 0.5 - width / 2
         y: root.artY + root.artH * root.carY
         fillMode: Image.PreserveAspectFit
@@ -643,9 +643,9 @@ Window {
 
     Image {
         id: carTop
-        source: "qrc:/images/images/car_fault_top.png"
+        source: "qrc:/images/images/car_top.png"
         height: root.artUnitH * root.faultCarHeight
-        width: height * (251 / 600)             // the source's trimmed aspect
+        width: height * (400 / 959)             // the source's trimmed aspect
         x: root.artX + root.artW * 0.5 - width / 2
         y: root.artY + root.artH * root.faultCarCentreY - height / 2
         fillMode: Image.PreserveAspectFit
@@ -679,36 +679,27 @@ Window {
     // so the banner and the icon in the lamp can never name different faults.
     // First match wins, so a mechanical fault outranks an electrical one when
     // both are up — the motor is the more urgent of the two.
-    readonly property var activeFault: {
+    readonly property string errorKind: {
         if (Vehicle.vibWarning || Vehicle.speedWarning || root.faultEngine)
-            return {
-                kind: "MECHANICAL",
-                icon: "telltale_engine"
-            };
+            return "MECHANICAL";
         if (root.faultAbs)
-            return {
-                kind: "MECHANICAL",
-                icon: "telltale_abs"
-            };
+            return "MECHANICAL";
         if (Vehicle.currentWarning || root.faultBattery)
-            return {
-                kind: "ELECTRICAL",
-                icon: "telltale_battery"
-            };
-        return {
-            kind: "",
-            icon: ""
-        };
+            return "ELECTRICAL";
+        return "";
     }
-    readonly property string errorKind: root.activeFault.kind
-    readonly property string errorIcon: root.activeFault.icon
+    // Two symbols, drawn for this lamp at the size it actually renders --
+    // see tools/make_fault_icons.py. The corner telltales keep their own
+    // artwork; those name a component, this names a system.
+    readonly property string errorIcon: root.errorKind === "MECHANICAL" ? "fault_mechanical"
+                                     : root.errorKind === "ELECTRICAL" ? "fault_electrical" : ""
 
-    // Fraction of the overhead car's own height. The nose is at 0, so 0.85 is
-    // over the rear axle — the Mission E's drive unit, and the dark deck panel
-    // there takes the red better than bodywork would.
-    readonly property real motorY: 0.85
-    readonly property real motorIconSize: 0.52  // fraction of the car's width
-    readonly property real errorTextY: 0.355    // fraction of artH
+    // Fraction of the overhead car's own height, nose at 0. Measured off
+    // car_top.png rather than guessed: the dark rear deck panel runs from
+    // 0.743 to 0.898 down the car and is 0.154 tall, so the symbol is centred
+    // on it and kept small enough to sit inside it.
+    readonly property real motorY: 0.821
+    readonly property real motorIconSize: 0.30  // fraction of the car's width
 
     // Blurred rather than drawn with a gradient: MultiEffect is already how the
     // ring and the telltales are lit, and QtQuick has no radial gradient
@@ -778,7 +769,11 @@ Window {
     // Steady while the glow breathes underneath it: pulsing both makes the
     // symbol hard to identify at exactly the moment it matters.
     Image {
-        source: root.errorIcon === "" ? "" : "qrc:/images/images/" + root.errorIcon + ".png"
+        source: root.errorIcon === "" ? "" : "qrc:/images/images/" + root.errorIcon + ".svg"
+        // SVG: rasterise at twice the drawn size so the edges stay clean
+        // if the icon is ever grown.
+        sourceSize.width: width * 2
+        sourceSize.height: height * 2
         width: carTop.width * root.motorIconSize
         height: width
         x: carTop.x + carTop.width / 2 - width / 2
@@ -789,20 +784,6 @@ Window {
         visible: root.errorIcon !== "" && carTop.visible
     }
 
-    Text {
-        x: root.artX + root.artW * 0.5 - width / 2
-        y: root.artY + root.artH * root.errorTextY - height / 2
-        text: root.errorKind + " ERROR"
-        // White, not red: the lamp on the car already carries the alarm, and a
-        // red banner on top of it read as shouty. Black was tried and is
-        // unreadable — it lands 36 levels off the lens background.
-        color: root.textColor
-        visible: root.errorKind !== ""
-        font.pixelSize: root.artUnitH * 0.036
-        font.family: "Century Gothic"
-        font.weight: Font.Bold
-        font.letterSpacing: 4
-    }
 
     // --- Gear indicator ------------------------------------------------------
     // Static: VehicleBackend exposes no gear signal. Bind `gear` to one when

@@ -79,7 +79,7 @@ NEON_OFF = (10, 15, 30)      # colour the ring fades to when unlit
 # cover the whole window it is FLAT, not Window.color, that you actually see as
 # the background — changing the colour in Main.qml alone does nothing, and the
 # layers have to be regenerated from here.
-FLAT = (0, 0, 0)             # black; was #0d1424, sampled from the lens interior
+FLAT = (3, 8, 18)             # == #030812; black lifted just enough to read blue
 KEEP_LO, KEEP_HI = 26.0, 38.0
 
 # --- Always-on baseline ----------------------------------------------------

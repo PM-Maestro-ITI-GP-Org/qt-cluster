@@ -43,12 +43,14 @@ Almost everything is one block at the top of `Main.qml`, just under
 
 | Property | What it colours |
 | --- | --- |
-| `ringColor` | The neon gauge light. Both halves of it — the always-on baseline and the part that lights with speed. |
+| `ringColor` | The neon gauge light. Both halves of it — the always-on baseline and the part that lights with speed. **Use a colour at full HSV value**: the tint is applied by colorizing the artwork, which multiplies it by this swatch, so anything dimmer drags the whole ring down with it. |
 | `accent` | `KM/H`, `KW`, `SOC`, `KM TOTAL`. |
-| `textColor` | Every readout and label: the big numbers, the captions, the clock, the song title, the error banner, the selected gear. |
+| `textColor` | Every readout and label: the big numbers, the captions, the clock, the song title, the selected gear. |
 | `scaleColor` | The `0..240` and `0..6` numbers around the ring. |
 | `gearIdleColor` | The gears that are not selected. |
 | `faultColor` | The four telltales when raised, and the lamp over the motor. |
+| `iconColor` | The telltales while idle. They are colorized in both states so a light background does not swallow the PNGs' own white. |
+| `carTint` / `carTintStrength` | The body colour of both cars. The photographs are near-white and are colorized by luminance, so the shading, glass and wheels survive. Strength 0 leaves them alone; much past 0.5 the glass takes the body colour too. |
 
 ```bash
 cmake --build build/Desktop_Qt_6_10_3-Debug -j8
@@ -92,8 +94,8 @@ to recolour the ring.
 ### One thing worth knowing before picking
 
 Red is the only colour on the screen that currently means something: the
-telltales, the motor lamp and the fault banner. Using it for `ringColor` or
-`accent` costs you that signal.
+telltales and the lamp over the motor. Using it for `ringColor` or `accent`
+costs you that signal.
 
 ## Layers
 

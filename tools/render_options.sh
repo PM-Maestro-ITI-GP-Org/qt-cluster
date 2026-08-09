@@ -24,9 +24,14 @@ restore() {
     pkill -x appCluster 2>/dev/null
     cp "$SAVE/Main.qml" Main.qml
     cp "$SAVE/make_bezel_layers.py" tools/make_bezel_layers.py
+    # The layers MUST be regenerated, not just the script that writes them.
+    # Putting FLAT back while leaving the last option's PNGs on disk is silent
+    # and survives a commit: the tree then says black and renders whatever the
+    # run happened to end on. That shipped twice before this line existed.
+    python3 tools/make_bezel_layers.py >/dev/null
     cmake --build "$BUILD" -j8 >/dev/null 2>&1
     rm -rf "$SAVE"
-    echo "restored Main.qml and make_bezel_layers.py"
+    echo "restored Main.qml, make_bezel_layers.py and the generated layers"
 }
 trap restore EXIT
 
