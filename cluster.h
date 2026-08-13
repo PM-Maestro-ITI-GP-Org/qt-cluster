@@ -97,6 +97,21 @@ public:
      * an inductive load; 1.0 leaves it uncorrected.                          */
     static constexpr float POWER_FACTOR = 0.85f;
 
+    /* ---- Speed source -----------------------------------------------------
+     * false: PA3, the analog speed command.
+     * true : the mean phase current RMS, scaled so full load reads 240.
+     *
+     * Measured against the recorded run, the two correlate at 0.82 and agree
+     * at both ends -- idle 2 vs 3 km/h, full 229 vs 240. They part company on
+     * deceleration: at t=18-20 s the command falls 193 -> 114 while the
+     * current still reads 253 -> 241, because current stays high driving the
+     * load down. Current lags, and on a real dash the needle would hang up
+     * while the motor is visibly slowing.                                    */
+    static constexpr bool  SPEED_FROM_CURRENT = true;
+
+    /* 240 km/h at the 1442-count full-load phase RMS from the recording. */
+    static constexpr float KMH_PER_IRMS_COUNT = 0.1664f;
+
     /* Speed command on PA3: counts above SPEED_CMD_ZERO_COUNTS map to km/h.
      *
      * The zero is NOT 0 counts. In the recorded run the command idles at

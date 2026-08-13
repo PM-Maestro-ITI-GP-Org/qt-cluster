@@ -51,11 +51,17 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     }
     const float iMean = sum / 8.f;
 
-    /* --- Speed, from the PA3 analog command ---
+    /* --- Speed ---
      * The tach input is not fitted, so snap.rpm stays 0 and cannot drive
-     * anything. PA3 carries the speed command as a voltage instead, averaged
-     * over the window by the reader.                                        */
-    const float speed = (snap.speed_cmd - SPEED_CMD_ZERO_COUNTS) * KMH_PER_COUNT;
+     * anything. Either PA3's analog command or the phase current stands in
+     * for it -- see SPEED_FROM_CURRENT.                                     */
+    float speed;
+    if (SPEED_FROM_CURRENT) {
+        const float iAvg = (snap.i_rms[0] + snap.i_rms[1] + snap.i_rms[2]) / 3.f;
+        speed = iAvg * KMH_PER_IRMS_COUNT;
+    } else {
+        speed = (snap.speed_cmd - SPEED_CMD_ZERO_COUNTS) * KMH_PER_COUNT;
+    }
     const float speedClamped = speed < 0.f ? 0.f : speed;
 
     /* --- Power, from the phase RMS values ---
