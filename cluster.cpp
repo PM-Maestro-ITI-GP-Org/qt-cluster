@@ -51,6 +51,31 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     }
     const float iMean = sum / 8.f;
 
+    /* --- Speed, from the PA3 analog command ---
+     * The tach input is not fitted, so snap.rpm stays 0 and cannot drive
+     * anything. PA3 carries the speed command as a voltage instead, averaged
+     * over the window by the reader.                                        */
+    const float speed = (snap.speed_cmd - SPEED_CMD_ZERO_COUNTS) * KMH_PER_COUNT;
+    const float speedClamped = speed < 0.f ? 0.f : speed;
+
+    /* --- Power, from the phase RMS values ---
+     * Per phase V_rms * I_rms, summed over the three phases. Both RMS values
+     * come from a whole window of rows -- a single sample of a sine or a
+     * square is a random point on the waveform and cannot be scaled into
+     * anything.
+     *
+     * This is apparent power, not real: multiplying the two RMS values
+     * separately drops the phase angle between them, so it reads high by the
+     * power factor (on a motor, always). Add a fixed POWER_FACTOR below, or
+     * average the instantaneous v*i product in the reader, if that matters.  */
+    float watts = 0.f;
+    for (int p = 0; p < 3; ++p) {
+        const float irms = snap.i_rms[p] * AMPS_PER_COUNT;
+        const float vrms = snap.v_rms[p] * VOLTS_PER_COUNT;
+        watts += vrms * irms;
+    }
+    watts *= POWER_FACTOR;
+
     if (changed) {
         m_currents    = amps;
         m_currentMean = iMean;
@@ -74,13 +99,15 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
         emit vibChanged();
     }
 
-    /* --- RPM ---
-     * Already in RPM units from the STM's timer input-capture math.    */
-    const float r = static_cast<float>(snap.rpm);
-    if (r != m_rpm) {
-        m_rpm = r;
+    if (speedClamped != m_rpm) {
+        m_rpm = speedClamped;
         emit rpmChanged();
         emit speedChanged();
+    }
+
+    if (watts != m_power) {
+        m_power = watts;
+        emit powerChanged();
     }
 
     evaluateWarnings();

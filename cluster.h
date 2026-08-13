@@ -78,6 +78,34 @@ public:
     static constexpr float ADC_MIDSCALE   = 2048.f;
     static constexpr float AMPS_PER_COUNT = 0.05f;    /* 100 A full-scale -> 0.05 A / count */
 
+    /* ---- PA0..PA7 scaling -------------------------------------------------
+     * PA0-2 Current_0/1/2, PA3 Speed_volt_cmd, PA4-6 Volt_0/1/2, PA7 DC bus.
+     * These are placeholders: nothing in the producer states the sense
+     * resistor, the divider ratio or the command's full-scale voltage, so the
+     * absolute numbers are wrong until they are measured. Both readouts still
+     * track the motor up and down, which is what matters here.
+     *
+     * Calibrated against a recorded run (AI/data/.../mafkok_pcb_large.csv):
+     * at full load the phase RMS values measure 952 counts of voltage and
+     * 1442 of current, and this puts that at 6 kW so it spans the cluster's
+     * 0-6 scale. Still not a physical measurement -- the divider ratio and
+     * shunt value are unknown -- but the range is now right for this rig.    */
+    static constexpr float VOLTS_PER_COUNT = 0.0343f;
+
+    /* Power factor applied to the apparent power. V_rms * I_rms drops the
+     * phase angle between voltage and current, so the product reads high on
+     * an inductive load; 1.0 leaves it uncorrected.                          */
+    static constexpr float POWER_FACTOR = 0.85f;
+
+    /* Speed command on PA3: counts above SPEED_CMD_ZERO_COUNTS map to km/h.
+     *
+     * The zero is NOT 0 counts. In the recorded run the command idles at
+     * ~1055 with the motor stopped and reaches ~4089 at full, so treating 0
+     * as the zero point would show ~64 km/h at a standstill. The span maps
+     * to 240 km/h, the top of the cluster's scale.                          */
+    static constexpr float SPEED_CMD_ZERO_COUNTS = 1055.f;
+    static constexpr float KMH_PER_COUNT         = 0.0791f;
+
     float rpm()           const { return m_rpm; }
     float speed()         const { return m_rpm; }
 
@@ -98,7 +126,7 @@ public:
     float temp()          const { return 0.f; }
     float voltage()       const { return 0.f; }
     float battery()       const { return 0.f; }
-    float power()         const { return 0.f; }
+    float power()         const { return m_power; }
     bool  tempWarning()   const { return false; }
     bool  voltageWarning() const { return false; }
 
@@ -132,7 +160,8 @@ private:
 
     SpiReader *m_spiReader = nullptr;
 
-    float m_rpm         = 0.f;
+    float m_rpm         = 0.f;   /* speed, from the PA3 command */
+    float m_power       = 0.f;   /* watts, from phase V_rms * I_rms */
     QVariantList m_currents;          /* 8 scaled channel currents (amps) */
     float m_currentMean = 0.f;
     float m_currentMax  = 0.f;        /* max |channel|, drives current warning */
