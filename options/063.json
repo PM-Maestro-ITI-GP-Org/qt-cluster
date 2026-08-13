@@ -1,0 +1,22 @@
+{
+  "id": "063",
+  "name": "plum-gold",
+  "background": "plum",
+  "hue": "gold",
+  "light": false,
+  "flat": [
+    20,
+    12,
+    26
+  ],
+  "window": "#140c1a",
+  "ringColor": "#ffd119",
+  "accent": "#ffde5a",
+  "textColor": "white",
+  "scaleColor": "#b8b29a",
+  "gearIdleColor": "#5c5744",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ffd119",
+  "carTintStrength": 0.18
+}

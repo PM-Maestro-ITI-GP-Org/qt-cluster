@@ -1,0 +1,22 @@
+{
+  "id": "024",
+  "name": "navy-coral",
+  "background": "navy",
+  "hue": "coral",
+  "light": false,
+  "flat": [
+    13,
+    20,
+    36
+  ],
+  "window": "#0d1424",
+  "ringColor": "#ff582e",
+  "accent": "#ff8768",
+  "textColor": "white",
+  "scaleColor": "#b8a09a",
+  "gearIdleColor": "#5c4944",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff582e",
+  "carTintStrength": 0.18
+}

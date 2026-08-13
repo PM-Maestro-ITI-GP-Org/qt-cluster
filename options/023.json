@@ -1,0 +1,22 @@
+{
+  "id": "023",
+  "name": "navy-orange",
+  "background": "navy",
+  "hue": "orange",
+  "light": false,
+  "flat": [
+    13,
+    20,
+    36
+  ],
+  "window": "#0d1424",
+  "ringColor": "#ff7919",
+  "accent": "#ff9f5a",
+  "textColor": "white",
+  "scaleColor": "#b8a69a",
+  "gearIdleColor": "#5c4e44",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff7919",
+  "carTintStrength": 0.18
+}

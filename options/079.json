@@ -1,0 +1,22 @@
+{
+  "id": "079",
+  "name": "slate-orange",
+  "background": "slate",
+  "hue": "orange",
+  "light": false,
+  "flat": [
+    16,
+    20,
+    26
+  ],
+  "window": "#10141a",
+  "ringColor": "#ff7919",
+  "accent": "#ff9f5a",
+  "textColor": "white",
+  "scaleColor": "#b8a69a",
+  "gearIdleColor": "#5c4e44",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff7919",
+  "carTintStrength": 0.18
+}

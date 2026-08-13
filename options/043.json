@@ -1,0 +1,22 @@
+{
+  "id": "043",
+  "name": "deepteal-azure",
+  "background": "deepteal",
+  "hue": "azure",
+  "light": false,
+  "flat": [
+    5,
+    26,
+    31
+  ],
+  "window": "#051a1f",
+  "ringColor": "#0d96ff",
+  "accent": "#51b3ff",
+  "textColor": "white",
+  "scaleColor": "#9aabb8",
+  "gearIdleColor": "#44515c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#0d96ff",
+  "carTintStrength": 0.18
+}

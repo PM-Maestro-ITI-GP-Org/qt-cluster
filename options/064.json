@@ -1,0 +1,22 @@
+{
+  "id": "064",
+  "name": "plum-amber",
+  "background": "plum",
+  "hue": "amber",
+  "light": false,
+  "flat": [
+    20,
+    12,
+    26
+  ],
+  "window": "#140c1a",
+  "ringColor": "#ffa914",
+  "accent": "#ffc156",
+  "textColor": "white",
+  "scaleColor": "#b8ad9a",
+  "gearIdleColor": "#5c5344",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ffa914",
+  "carTintStrength": 0.18
+}

@@ -1,0 +1,22 @@
+{
+  "id": "044",
+  "name": "deepteal-cyan",
+  "background": "deepteal",
+  "hue": "cyan",
+  "light": false,
+  "flat": [
+    5,
+    26,
+    31
+  ],
+  "window": "#051a1f",
+  "ringColor": "#00e5ff",
+  "accent": "#47edff",
+  "textColor": "white",
+  "scaleColor": "#9ab5b8",
+  "gearIdleColor": "#44595c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#00e5ff",
+  "carTintStrength": 0.18
+}

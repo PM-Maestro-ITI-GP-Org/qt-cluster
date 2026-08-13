@@ -1,0 +1,22 @@
+{
+  "id": "078",
+  "name": "slate-amber",
+  "background": "slate",
+  "hue": "amber",
+  "light": false,
+  "flat": [
+    16,
+    20,
+    26
+  ],
+  "window": "#10141a",
+  "ringColor": "#ffa914",
+  "accent": "#ffc156",
+  "textColor": "white",
+  "scaleColor": "#b8ad9a",
+  "gearIdleColor": "#5c5344",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ffa914",
+  "carTintStrength": 0.18
+}

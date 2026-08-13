@@ -1,0 +1,22 @@
+{
+  "id": "027",
+  "name": "navy-violet",
+  "background": "navy",
+  "hue": "violet",
+  "light": false,
+  "flat": [
+    13,
+    20,
+    36
+  ],
+  "window": "#0d1424",
+  "ringColor": "#9447ff",
+  "accent": "#b27bff",
+  "textColor": "white",
+  "scaleColor": "#a69ab8",
+  "gearIdleColor": "#4e445c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#9447ff",
+  "carTintStrength": 0.18
+}

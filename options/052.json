@@ -1,0 +1,22 @@
+{
+  "id": "052",
+  "name": "deepteal-coral",
+  "background": "deepteal",
+  "hue": "coral",
+  "light": false,
+  "flat": [
+    5,
+    26,
+    31
+  ],
+  "window": "#051a1f",
+  "ringColor": "#ff582e",
+  "accent": "#ff8768",
+  "textColor": "white",
+  "scaleColor": "#b8a09a",
+  "gearIdleColor": "#5c4944",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff582e",
+  "carTintStrength": 0.18
+}

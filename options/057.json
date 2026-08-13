@@ -1,0 +1,22 @@
+{
+  "id": "057",
+  "name": "plum-azure",
+  "background": "plum",
+  "hue": "azure",
+  "light": false,
+  "flat": [
+    20,
+    12,
+    26
+  ],
+  "window": "#140c1a",
+  "ringColor": "#0d96ff",
+  "accent": "#51b3ff",
+  "textColor": "white",
+  "scaleColor": "#9aabb8",
+  "gearIdleColor": "#44515c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#0d96ff",
+  "carTintStrength": 0.18
+}

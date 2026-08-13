@@ -1,0 +1,22 @@
+{
+  "id": "082",
+  "name": "slate-magenta",
+  "background": "slate",
+  "hue": "magenta",
+  "light": false,
+  "flat": [
+    16,
+    20,
+    26
+  ],
+  "window": "#10141a",
+  "ringColor": "#ff3399",
+  "accent": "#ff6cb6",
+  "textColor": "white",
+  "scaleColor": "#b89aa9",
+  "gearIdleColor": "#5c4450",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ff3399",
+  "carTintStrength": 0.18
+}

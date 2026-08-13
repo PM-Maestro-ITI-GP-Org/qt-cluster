@@ -1,0 +1,22 @@
+{
+  "id": "041",
+  "name": "charcoal-violet",
+  "background": "charcoal",
+  "hue": "violet",
+  "light": false,
+  "flat": [
+    18,
+    18,
+    20
+  ],
+  "window": "#121214",
+  "ringColor": "#9447ff",
+  "accent": "#b27bff",
+  "textColor": "white",
+  "scaleColor": "#a69ab8",
+  "gearIdleColor": "#4e445c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#9447ff",
+  "carTintStrength": 0.18
+}

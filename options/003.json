@@ -1,0 +1,22 @@
+{
+  "id": "003",
+  "name": "black-teal",
+  "background": "black",
+  "hue": "teal",
+  "light": false,
+  "flat": [
+    0,
+    0,
+    0
+  ],
+  "window": "#000000",
+  "ringColor": "#14ffd0",
+  "accent": "#56ffdd",
+  "textColor": "white",
+  "scaleColor": "#9ab8b2",
+  "gearIdleColor": "#445c57",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#14ffd0",
+  "carTintStrength": 0.18
+}

@@ -1,0 +1,22 @@
+{
+  "id": "033",
+  "name": "charcoal-green",
+  "background": "charcoal",
+  "hue": "green",
+  "light": false,
+  "flat": [
+    18,
+    18,
+    20
+  ],
+  "window": "#121214",
+  "ringColor": "#26ff81",
+  "accent": "#63ffa4",
+  "textColor": "white",
+  "scaleColor": "#9ab8a6",
+  "gearIdleColor": "#445c4e",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#26ff81",
+  "carTintStrength": 0.18
+}

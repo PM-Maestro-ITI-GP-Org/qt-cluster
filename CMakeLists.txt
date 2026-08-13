@@ -9,8 +9,23 @@ set(CMAKE_AUTORCC ON)
 # ============================================
 # Qt6 Library Path Configuration
 # ============================================
+# Qt Creator configures with CMAKE_PREFIX_PATH pointing at the kit's Qt and
+# never sets Qt6_DIR, so derive it from there when it wasn't passed explicitly.
+# Without this the build aborts here before build.ninja is generated. The
+# explicit -DQt6_DIR= form is still needed for the QNX cross-build, where
+# nothing else points at the right Qt.
 if(NOT DEFINED Qt6_DIR)
-    message(FATAL_ERROR "Qt6_DIR not set. Please provide it via cmake:\n"
+    foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
+        if(EXISTS "${_prefix}/lib/cmake/Qt6")
+            set(Qt6_DIR "${_prefix}/lib/cmake/Qt6" CACHE PATH "Qt6 CMake package directory")
+            break()
+        endif()
+    endforeach()
+endif()
+
+if(NOT DEFINED Qt6_DIR)
+    message(FATAL_ERROR "Qt6_DIR not set and not derivable from CMAKE_PREFIX_PATH.\n"
+            "Provide it via cmake:\n"
             "  cmake -S . -B <build_dir> -DQt6_DIR=<path_to_libs>/lib/cmake/Qt6")
 endif()
 message(STATUS "Using Qt6_DIR: ${Qt6_DIR}")
@@ -141,9 +156,12 @@ export QT_QPA_PLATFORM_PLUGIN_PATH=\"$DIR/plugins/platforms\"
 # plugin is libqqnx.so and talks to Screen. Overridable for a host-side run.
 export QT_QPA_PLATFORM=\"\${QT_QPA_PLATFORM:-qnx}\"
 export QT_QUICK_BACKEND=\"software\"
-export QQNX_PHYSICAL_SCREEN_SIZE=\"\${QQNX_PHYSICAL_SCREEN_SIZE:-150,90}\"
-export APP_WIDTH=\"\${APP_WIDTH:-1280}\"
-export APP_HEIGHT=\"\${APP_HEIGHT:-720}\"
+# 7\" panel: ~154x87mm active area at 1024x600.
+export QQNX_PHYSICAL_SCREEN_SIZE=\"\${QQNX_PHYSICAL_SCREEN_SIZE:-154,87}\"
+# Target panel size. NOTE: nothing reads these yet -- Main.qml sets its own
+# Window size. They are kept in step so they do not mislead.
+export APP_WIDTH=\"\${APP_WIDTH:-1024}\"
+export APP_HEIGHT=\"\${APP_HEIGHT:-600}\"
 # FONTCONFIG_FILE only matters to a Qt built with fontconfig. This one is not
 # -- libQt6Gui links freetype and nothing else -- so it uses the basic font
 # database, which reads QT_QPA_FONTDIR and otherwise looks in a compiled-in

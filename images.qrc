@@ -1,5 +1,17 @@
 <RCC>
     <qresource prefix="/images">
+        <file>images/telltale_engine.png</file>
+        <file>images/telltale_battery.png</file>
+        <file>images/telltale_abs.png</file>
+        <file>images/telltale_seatbelt.png</file>
+        <file>images/car_top.png</file>
+        <file>images/car_rear.png</file>
+        <file>images/fault_mechanical.svg</file>
+        <file>images/fault_electrical.svg</file>
+        <file>images/cluster_bezel_base.png</file>
+        <file>images/cluster_bezel_glow.png</file>
+        <file>images/cluster_ring_base.png</file>
+        <file>images/cluster_road.png</file>
         <file>images/car.png</file>
         <file>images/speed.svg</file>
         <file>images/temp.svg</file>

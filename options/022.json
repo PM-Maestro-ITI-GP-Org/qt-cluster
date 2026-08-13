@@ -1,0 +1,22 @@
+{
+  "id": "022",
+  "name": "navy-amber",
+  "background": "navy",
+  "hue": "amber",
+  "light": false,
+  "flat": [
+    13,
+    20,
+    36
+  ],
+  "window": "#0d1424",
+  "ringColor": "#ffa914",
+  "accent": "#ffc156",
+  "textColor": "white",
+  "scaleColor": "#b8ad9a",
+  "gearIdleColor": "#5c5344",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ffa914",
+  "carTintStrength": 0.18
+}

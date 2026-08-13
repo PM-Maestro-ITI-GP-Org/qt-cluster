@@ -1,0 +1,22 @@
+{
+  "id": "060",
+  "name": "plum-mint",
+  "background": "plum",
+  "hue": "mint",
+  "light": false,
+  "flat": [
+    20,
+    12,
+    26
+  ],
+  "window": "#140c1a",
+  "ringColor": "#1fffad",
+  "accent": "#5dffc4",
+  "textColor": "white",
+  "scaleColor": "#9ab8ad",
+  "gearIdleColor": "#445c53",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#1fffad",
+  "carTintStrength": 0.18
+}

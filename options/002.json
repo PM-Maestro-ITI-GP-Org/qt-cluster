@@ -1,0 +1,22 @@
+{
+  "id": "002",
+  "name": "black-cyan",
+  "background": "black",
+  "hue": "cyan",
+  "light": false,
+  "flat": [
+    0,
+    0,
+    0
+  ],
+  "window": "#000000",
+  "ringColor": "#00e5ff",
+  "accent": "#47edff",
+  "textColor": "white",
+  "scaleColor": "#9ab5b8",
+  "gearIdleColor": "#44595c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#00e5ff",
+  "carTintStrength": 0.18
+}

@@ -1,0 +1,22 @@
+{
+  "id": "028",
+  "name": "navy-indigo",
+  "background": "navy",
+  "hue": "indigo",
+  "light": false,
+  "flat": [
+    13,
+    20,
+    36
+  ],
+  "window": "#0d1424",
+  "ringColor": "#4040ff",
+  "accent": "#7575ff",
+  "textColor": "white",
+  "scaleColor": "#9a9ab8",
+  "gearIdleColor": "#44445c",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#4040ff",
+  "carTintStrength": 0.18
+}

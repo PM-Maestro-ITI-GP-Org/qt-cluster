@@ -1,0 +1,22 @@
+{
+  "id": "035",
+  "name": "charcoal-gold",
+  "background": "charcoal",
+  "hue": "gold",
+  "light": false,
+  "flat": [
+    18,
+    18,
+    20
+  ],
+  "window": "#121214",
+  "ringColor": "#ffd119",
+  "accent": "#ffde5a",
+  "textColor": "white",
+  "scaleColor": "#b8b29a",
+  "gearIdleColor": "#5c5744",
+  "iconColor": "white",
+  "faultColor": "#ff2b2b",
+  "carTint": "#ffd119",
+  "carTintStrength": 0.18
+}
