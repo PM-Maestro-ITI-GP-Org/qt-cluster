@@ -64,13 +64,20 @@ protected:
 
     /* ---- Sampling of the 20 kHz stream --------------------------------
      * kRowStride: take every Nth row. 1 processes all 20 kHz samples.
-     * kWindowBlocks: how many 10 ms blocks to accumulate before emitting.
+     * kWindowBlocks: how many 10 ms blocks the average covers.
+     * kEmitBlocks: how often a new average is published.
      *
-     * Defaults give 20000/4 = 5 kHz effective, averaged over 10 blocks =
-     * 100 ms, so the readouts update at 10 Hz off 500 samples per channel.
-     * At 100 ms the window spans several cycles of anything above ~50 Hz,
-     * which is what stops the RMS wobbling with where the block happened
-     * to start.
+     * The window SLIDES: it always covers the last kWindowBlocks, but a
+     * fresh average goes out every kEmitBlocks. Those are deliberately
+     * different. Making the window longer to steady the readouts would,
+     * if they were the same, also make them update that much more rarely --
+     * a 500 ms window would step twice a second and look broken. Sliding
+     * gives 500 ms of smoothing at a 100 ms refresh.
+     *
+     * Defaults: 20000/4 = 5 kHz effective, averaged over 50 blocks = 500 ms
+     * (2500 samples per channel), republished every 10 blocks = 100 ms.
+     * A window that long spans many cycles of anything above ~50 Hz, so the
+     * RMS no longer depends on where the block happened to start.
      *
      * NOTE on raising kRowStride: decimating without a low-pass filter
      * aliases everything above half the new rate. The phase voltages are
@@ -79,7 +86,8 @@ protected:
      * to decimate here -- 200 rows x 8 channels at 100 Hz is nothing -- so
      * set this to 1 if the power reading looks unstable.                   */
     static constexpr uint32_t kRowStride    = 4;
-    static constexpr uint32_t kWindowBlocks = 10;
+    static constexpr uint32_t kWindowBlocks = 50;   /* 500 ms of smoothing */
+    static constexpr uint32_t kEmitBlocks   = 10;   /* refreshed every 100 ms */
 
 private:
     volatile bool m_running = true;

@@ -27,6 +27,7 @@
 
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <cstring>
 #include <cmath>
@@ -85,7 +86,8 @@ struct ShmRegionHeader {
     alignas(kMotorCacheline) MotorRingShm     ring;
 };
 
-/* Running sum/sum-of-squares per channel, reset every window. */
+/* Sum/sum-of-squares per channel for one block. Blocks are merged to
+ * form the sliding window, so this is never reset in place.        */
 struct ChannelAccum {
     double sum[8]   = {0};
     double sumsq[8] = {0};
@@ -101,6 +103,12 @@ struct ChannelAccum {
         ++n;
     }
     void reset() { *this = ChannelAccum{}; }
+
+    void merge(const ChannelAccum &o)
+    {
+        for (int c = 0; c < 8; ++c) { sum[c] += o.sum[c]; sumsq[c] += o.sumsq[c]; }
+        n += o.n;
+    }
 
     double mean(int c) const { return n ? sum[c] / n : 0.0; }
 
@@ -139,6 +147,21 @@ void SpiReader::run()
         return;
     }
 
+    /* Check the object is actually as big as the contract before mapping it.
+     * mmap happily maps past the end of a short shm object and the process
+     * then takes SIGBUS on the first touch, which surfaces as a crash with no
+     * message and nothing pointing at the producer. Easy to hit by racing a
+     * producer between its shm_open(O_CREAT) and its ftruncate, when the
+     * object is momentarily zero-length.                                     */
+    struct stat st;
+    if (fstat(fd, &st) != 0 || static_cast<size_t>(st.st_size) < sizeof(ShmRegionHeader)) {
+        qWarning("SpiReader: %s is %lld bytes, need %zu -- producer still starting, "
+                 "or built against a different contract",
+                 kMotorShmName, (long long)st.st_size, sizeof(ShmRegionHeader));
+        close(fd);
+        return;
+    }
+
     m_shm_size = sizeof(ShmRegionHeader);   /* header + snapshot + full ring */
     m_shm = mmap(nullptr, m_shm_size, PROT_READ, MAP_SHARED, fd, 0);
     close(fd);
@@ -172,9 +195,15 @@ void SpiReader::run()
      * make us permanently lapped.                                          */
     uint64_t cursor = ring->write_pos.load(std::memory_order_acquire);
 
-    ChannelAccum acc;
-    uint32_t     blocks_in_window = 0;
-    uint64_t     dropped          = 0;
+    /* Sliding window: one accumulation per block, kept in a ring, summed
+     * afresh on every emit. Recomputing rather than adding the new block and
+     * subtracting the evicted one keeps this exact -- running sums of doubles
+     * drift over a long run -- and 50 entries x 8 channels is nothing.      */
+    ChannelAccum  hist[kWindowBlocks];
+    uint32_t      hist_pos   = 0;
+    uint32_t      hist_len   = 0;
+    uint32_t      since_emit = 0;
+    uint64_t      dropped    = 0;
     MotorBlockShm blk;
 
     while (m_running) {
@@ -211,11 +240,18 @@ void SpiReader::run()
             ++cursor;
             if (!ok) { ++dropped; continue; }
 
+            ChannelAccum one;
             for (uint32_t i = 0; i < blk.n_rows; i += kRowStride)
-                acc.add(blk.rows[i]);
-            ++blocks_in_window;
+                one.add(blk.rows[i]);
 
-            if (blocks_in_window >= kWindowBlocks && acc.n > 0) {
+            hist[hist_pos] = one;
+            hist_pos = (hist_pos + 1u) % kWindowBlocks;
+            if (hist_len < kWindowBlocks) ++hist_len;
+            ++since_emit;
+
+            if (since_emit >= kEmitBlocks && hist_len > 0) {
+                ChannelAccum acc;
+                for (uint32_t h = 0; h < hist_len; ++h) acc.merge(hist[h]);
                 MotorSnapshot out{};
 
                 /* Latest raw row, for vibration and for anything that wants
@@ -239,9 +275,7 @@ void SpiReader::run()
                 out.win_rows  = acc.n;
 
                 emit newData(out);
-
-                acc.reset();
-                blocks_in_window = 0;
+                since_emit = 0;
             }
         }
 
