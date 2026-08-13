@@ -25,6 +25,72 @@ Two environment variables drive it without hardware:
 | `CLUSTER_DEMO=1` | Sweeps speed 0..250 and cycles the four telltales, which is also what exercises fault mode and the now-playing strip. |
 | `CLUSTER_SPEED=120` | Pins the speed. Wins over both the demo sweep and the backend — use it to park the ring on one number. |
 
+## Replaying a recorded CSV
+
+`CLUSTER_DEMO` sweeps a made-up ramp. To watch speed and power move on *real*
+data, replay a recording into the shared memory the cluster already reads —
+no STM32, no Pi. The cluster cannot tell the difference: same `shm_region_t`,
+same 200-row blocks, same 100 Hz cadence.
+
+Build it once. It needs `motor_shm.h` from the producer tree, which is not
+vendored here, so the include path points next door:
+
+```bash
+gcc -std=c11 -O2 -I../../motor-data-producer tools/csvreplay.c -o /tmp/csvreplay -lrt
+```
+
+Then, in one terminal:
+
+```bash
+/tmp/csvreplay ~/projects/Graduation_project/AI/data/data_for_anomaly/normal/long/mafkok_pcb_large.csv
+```
+
+and in another:
+
+```bash
+./build/Desktop_Qt_6_10_3-Debug/deploy/appCluster
+```
+
+Start the replayer first — the cluster gives up after ~5 s if the region is not
+there. It loops until Ctrl-C and prints the speed command once a second, so you
+can check the cluster against it:
+
+```
+loaded 595200 rows (29.8 s at 20000 Hz)
+replaying into /motor_ctrl -- start the cluster now, Ctrl-C to stop
+  t=  1.0s  speed_cmd=1633 counts
+  t=  2.0s  speed_cmd=2286 counts
+```
+
+Do **not** set `CLUSTER_DEMO` or `CLUSTER_SPEED` at the same time — both
+override the backend, so the readouts would ignore the file.
+
+Any CSV works as long as it has these columns, one row per 20 kHz sample:
+
+```
+timestamp,current_0..current_7,vib_x,vib_y,vib_z,rpm
+```
+
+`current_3` is the speed command and `current_0..2` / `current_4..6` are the
+phase currents and voltages — the full assignment is `MotorChannel` in
+`SpiReader.h`. Malformed lines are skipped.
+
+### If the numbers look wrong rather than absent
+
+The scale factors in `cluster.h` were calibrated against the recording above,
+not measured off the hardware:
+
+| Constant | Set from |
+| --- | --- |
+| `SPEED_CMD_ZERO_COUNTS` | The command idles at ~1055 counts, **not 0** — with a zero of 0 the cluster reads ~64 km/h standing still. |
+| `KMH_PER_COUNT` | ~1055 idle to ~4089 full, mapped to 0..240 km/h. |
+| `VOLTS_PER_COUNT` | Full-load phase RMS of 952 counts of voltage against 1442 of current, put at 6 kW so it spans the 0..6 scale. |
+| `POWER_FACTOR` | A flat 0.85. `V_rms * I_rms` is apparent power and ignores the phase angle, so it reads high on a motor. |
+
+A different rig will idle somewhere else and swing a different amount. Fix the
+zero first — an offset there shows as speed at a standstill, which is the
+obvious symptom — then the span.
+
 QNX cross build:
 
 ```bash
