@@ -56,6 +56,21 @@ CHROMA_LO, CHROMA_HI = 26, 70
 # leaves nothing for speed to reveal.
 BASELINE = 0.40
 
+# Each tube is a closed loop in the plate. Its inner arc -- the half facing the
+# centre -- is cut away, leaving a C open toward the middle, which is what frees
+# the centre for the car and the road.
+#
+# Expressed as distance from the centre line over width, so both sides are cut
+# by one number and stay symmetric. Full strength at or beyond KEEP, gone at or
+# inside GONE. The ramp between them matters: the top and bottom runs of the
+# loop cross it almost horizontally, so a hard edge there would read as the tube
+# being sliced rather than tapering out.
+#
+# The cut applies to the tube layers only. The base still has the whole loop
+# removed from it, so what is left behind in the cut region is the empty channel
+# the tube used to sit in.
+TUBE_KEEP, TUBE_GONE = 0.207, 0.148
+
 # The middle, flattened so the car and road sit on the same dark they were drawn
 # against rather than on the plate's lit centre panel.
 #
@@ -97,6 +112,23 @@ def tube_alpha(im):
     return out
 
 
+def cut_inner_arc(alpha):
+    """Fade the tube out as it approaches the centre line."""
+    keep = TUBE_KEEP * W
+    gone = TUBE_GONE * W
+    span = keep - gone
+    ramp = [0] * W
+    for x in range(W):
+        d = abs(x - W / 2.0)
+        if d >= keep:
+            ramp[x] = 255
+        elif d > gone:
+            ramp[x] = int((d - gone) / span * 255)
+    col = Image.new("L", (W, 1))
+    col.putdata(ramp)
+    return ImageChops.multiply(alpha, col.resize((W, H)))
+
+
 def flatten_middle(im):
     """Replace the centre panel with FLAT, leaving the metal alone."""
     rect = Image.new("L", im.size, 0)
@@ -135,21 +167,26 @@ def main():
     base.save(os.path.join(IMAGES, "v2_bezel_base.png"))
 
     # --- tubes ----------------------------------------------------------------
+    # Cut alpha, not the full one: the base above had the whole loop taken out,
+    # but only the outer C is drawn back as light.
+    arc = cut_inner_arc(alpha)
+
     # Main.qml colorizes these by luminance, so the grey here is what sets how
     # bright each part of the tube reads once it is tinted with ringColor.
     lum = im.convert("L")
-    glow = Image.merge("RGBA", (lum, lum, lum, alpha))
-    glow.save(os.path.join(IMAGES, "v2_bezel_glow.png"))
+    Image.merge("RGBA", (lum, lum, lum, arc)).save(
+        os.path.join(IMAGES, "v2_bezel_glow.png"))
 
     dim = Image.eval(lum, lambda v: int(v * BASELINE))
-    Image.merge("RGBA", (dim, dim, dim, alpha)).save(
+    Image.merge("RGBA", (dim, dim, dim, arc)).save(
         os.path.join(IMAGES, "v2_ring_base.png"))
 
-    lit = sum(1 for p in alpha.get_flattened_data() if p > 8)
+    full = sum(1 for p in alpha.get_flattened_data() if p > 8)
+    kept = sum(1 for p in arc.get_flattened_data() if p > 8)
     print("wrote v2_bezel_base.png, v2_ring_base.png, v2_bezel_glow.png (%dx%d)"
           % (W, H))
-    print("  tube covers %d px (%.2f%% of the plate), bbox %s"
-          % (lit, 100.0 * lit / (W * H), alpha.getbbox()))
+    print("  loop %d px, arc kept %d px (%.0f%%), arc bbox %s"
+          % (full, kept, 100.0 * kept / full, arc.getbbox()))
 
 
 if __name__ == "__main__":
