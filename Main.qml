@@ -92,6 +92,9 @@ Window {
     // smooth it in VehicleBackend rather than reintroducing either of those.
     // CLUSTER_SPEED wins over both the demo sweep and the backend, so the glow
     // can be parked on one number while glowY is tuned.
+    // Two pairs, and which one a widget uses matters. `speed`/`power` are
+    // continuous and drive the ring's glow; `speedShown`/`powerShown` change
+    // twice a second and drive the numerals. See DISPLAY_PERIOD_S in cluster.h.
     QtObject {
         id: live
         readonly property real speed: fixedSpeed >= 0 ? fixedSpeed : demoMode ? root.demoSpeed : Vehicle.speed
@@ -102,6 +105,29 @@ Window {
         readonly property real power: fixedSpeed >= 0 ? fixedSpeed / Vehicle.speedMax * Vehicle.powerMax
                                                       : demoMode ? root.demoSpeed / Vehicle.speedMax * Vehicle.powerMax
                                                                  : Vehicle.power
+
+        // The numerals. On hardware these come from the backend's 500ms window
+        // mean; the demo has no noise to average, so it latches the sweep at
+        // the same 2 Hz to keep the two paths behaving alike.
+        readonly property real speedShown: (fixedSpeed >= 0 || demoMode) ? root.demoHeldSpeed
+                                                                         : Vehicle.speedDisplay
+        readonly property real powerShown: (fixedSpeed >= 0 || demoMode) ? root.demoHeldPower
+                                                                         : Vehicle.powerDisplay
+    }
+
+    // Demo-side 2 Hz latch, mirroring what the backend does for real data.
+    property real demoHeldSpeed: 0
+    property real demoHeldPower: 0
+
+    Timer {
+        interval: Math.round(1000 / Vehicle.displayHz)
+        running: demoMode || fixedSpeed >= 0
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            root.demoHeldSpeed = live.speed;
+            root.demoHeldPower = live.power;
+        }
     }
 
     // glowY is indexed by scaleValues, so a short array silently produces NaN
@@ -1600,7 +1626,7 @@ Window {
         Readout {
             x: screen.w * 0.22 - width / 2
             anchors.verticalCenter: parent.verticalCenter
-            value: Math.round(live.speed)
+            value: Math.round(live.speedShown)
             unit: "KM/H"
             caption: "SPEED"
         }
@@ -1610,7 +1636,7 @@ Window {
             anchors.verticalCenter: parent.verticalCenter
             // Watts, shown as watts. It used to divide by 1000 for a single
             // kW digit, which on a 450W motor meant a readout permanently at 0.
-            value: Math.round(live.power)
+            value: Math.round(live.powerShown)
             unit: "W"
             caption: "POWER"
         }

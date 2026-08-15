@@ -39,9 +39,22 @@ class VehicleBackend : public QObject
     Q_OBJECT
     QML_ELEMENT
 
-    /* --- the two the cluster displays ------------------------------------ */
+    /* --- the two the cluster displays ------------------------------------
+     * Each comes in two forms, and they are not interchangeable:
+     *
+     *   speed / power                continuous, every block. For the ring's
+     *                                glow, which should move smoothly.
+     *   speedDisplay / powerDisplay  the mean over a 500ms window, republished
+     *                                at 2 Hz. For the numerals, which should
+     *                                hold still long enough to be read.
+     *
+     * See DISPLAY_PERIOD_S for why. Binding the digits to the continuous one
+     * is the mistake this pair exists to prevent.                            */
     Q_PROPERTY(float speed           READ speed           NOTIFY speedChanged)   /* km/h, filtered */
     Q_PROPERTY(float power           READ power           NOTIFY powerChanged)   /* watts, filtered, signed */
+    Q_PROPERTY(float speedDisplay    READ speedDisplay    NOTIFY displayChanged) /* km/h, 2 Hz */
+    Q_PROPERTY(float powerDisplay    READ powerDisplay    NOTIFY displayChanged) /* watts, 2 Hz */
+    Q_PROPERTY(float displayHz       READ displayHz       CONSTANT)
     Q_PROPERTY(float rpm             READ rpm             NOTIFY rpmChanged)     /* filtered, pre-conversion */
 
     /* --- derived electricals, not displayed but useful to bind ----------- */
@@ -150,6 +163,33 @@ public:
     static constexpr float SPEED_DEADBAND   = 0.5f;    /* km/h */
     static constexpr float POWER_DEADBAND   = 20.f;    /* W    */
 
+    /* ---- how often the NUMERALS change ------------------------------------
+     * 2 Hz. Production clusters default to twice a second for digital speed
+     * (BMW's is 2 Hz, codeable to 5 or 10), and the human-factors reason is
+     * the one that matters here: a digit that changes faster than the eye can
+     * fix on it stops being a reading and becomes clutter.
+     *
+     * This is a convention, not a requirement. ISO 15008 governs legibility --
+     * character size, contrast, colour -- and says nothing about update rate,
+     * so there is no figure to comply with. 500ms is the industry default and
+     * is what this uses.
+     *
+     * It applies to the NUMERALS ONLY. The ring's glow keeps running off the
+     * continuous value at frame rate: the guidance is that the analogue
+     * indicator carries the perception and the digits confirm it, and holding
+     * a moving graphic at 2 Hz would just make it judder. So the two are
+     * deliberately allowed to disagree by up to half a second of travel.
+     *
+     * The published number is the MEAN over the window, not a sample of it.
+     * At a 100Hz block rate that is ~50 samples, which is both a better
+     * estimate than any one of them and the thing that makes the digit steady
+     * rather than merely slow.                                               */
+    static constexpr float DISPLAY_PERIOD_S = 0.5f;
+    /* Used to advance the window when a snapshot arrives with an unusable
+     * timestamp, so a run of them cannot stall the display. Nominal block
+     * rate: 100Hz. */
+    static constexpr float DT_NOMINAL_S     = 0.01f;
+
     /* Guard against a stalled or restarted producer: a dt outside this is not
      * used to advance the filters. */
     static constexpr float DT_MIN_S         = 1e-4f;
@@ -179,6 +219,9 @@ public:
 
     float speed()         const { return m_speedKmh; }
     float power()         const { return m_powerW; }
+    float speedDisplay()  const { return m_speedDisplay; }
+    float powerDisplay()  const { return m_powerDisplay; }
+    float displayHz()     const { return 1.f / DISPLAY_PERIOD_S; }
     float rpm()           const { return m_rpm; }
     float currentRms()    const { return m_currentRms; }
     float busVoltage()    const { return m_busVoltage; }
@@ -212,6 +255,7 @@ public slots:
 signals:
     void speedChanged();
     void powerChanged();
+    void displayChanged();
     void rpmChanged();
     void electricalChanged();
     void vibChanged();
@@ -226,6 +270,7 @@ private:
     void evaluateWarnings();
     float dtFrom(quint64 timestampUs);
     float medianRpm(float sample);
+    void accumulateDisplay(float speedKmh, float powerW, float dt);
 
     SpiReader *m_spiReader = nullptr;
     AiReader  *m_aiReader  = nullptr;
@@ -235,6 +280,16 @@ private:
     float m_powerFiltered = 0.f; /* filter state */
     float m_powerW      = 0.f;   /* published, deadbanded */
     bool  m_primed      = false; /* first snapshot seen */
+
+    /* 2 Hz display window: running sums of the per-sample values, and the
+     * elapsed time in the window so far. Summed, not sampled -- the published
+     * number is their mean. */
+    float m_speedDisplay = 0.f;
+    float m_powerDisplay = 0.f;
+    double m_winSpeedSum = 0.0;
+    double m_winPowerSum = 0.0;
+    int    m_winCount    = 0;
+    float  m_winElapsed  = 0.f;
     float m_currentRms  = 0.f;
     float m_busVoltage  = 0.f;
     float m_throttle    = 0.f;   /* 0..1, from the speed command channel */

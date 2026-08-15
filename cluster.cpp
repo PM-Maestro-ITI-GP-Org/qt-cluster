@@ -80,6 +80,49 @@ float VehicleBackend::medianRpm(float sample)
     return sorted[m_rpmWindowCount / 2];
 }
 
+/* Collect this sample into the 500ms display window, and republish the numerals
+ * when it closes.
+ *
+ * The mean of the window, not a sample from it. Sampling twice a second would
+ * hold the digit still just as well, but it would throw away 49 readings out of
+ * 50 and hand the driver whichever one happened to land on the boundary. The
+ * mean uses all of them, so the number is steadier *and* better.
+ *
+ * Fed the per-sample values, deliberately upstream of the low pass -- averaging
+ * an already-averaged signal would smear the digit across two windows and make
+ * it lag the ring by more than the half second the eye can forgive. */
+void VehicleBackend::accumulateDisplay(float speedKmh, float powerW, float dt)
+{
+    m_winSpeedSum += speedKmh;
+    m_winPowerSum += powerW;
+    ++m_winCount;
+    /* A run of unusable timestamps must not stall the digits, so the window
+     * advances at the nominal block rate when dt is unavailable. */
+    m_winElapsed += (dt > 0.f) ? dt : DT_NOMINAL_S;
+
+    if (m_winElapsed < DISPLAY_PERIOD_S || m_winCount == 0)
+        return;
+
+    const float meanSpeed = static_cast<float>(m_winSpeedSum / m_winCount);
+    const float meanPower = static_cast<float>(m_winPowerSum / m_winCount);
+
+    float s = qnx_clamp(meanSpeed, 0.f, SPEED_MAX_KMH);
+    if (s < SPEED_DEADBAND) s = 0.f;
+    float p = qnx_clamp(meanPower, -POWER_MAX_W, POWER_MAX_W);
+    if (std::abs(p) < POWER_DEADBAND) p = 0.f;
+
+    m_winSpeedSum = 0.0;
+    m_winPowerSum = 0.0;
+    m_winCount = 0;
+    m_winElapsed = 0.f;
+
+    if (s != m_speedDisplay || p != m_powerDisplay) {
+        m_speedDisplay = s;
+        m_powerDisplay = p;
+        emit displayChanged();
+    }
+}
+
 /* Called on the Qt main thread for every new snapshot, via QueuedConnection. */
 void VehicleBackend::onSpiData(MotorSnapshot snap)
 {
@@ -213,6 +256,10 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
         emit powerChanged();
     }
     emit electricalChanged();
+
+    /* Pre-filter values: the window does its own averaging, and feeding it the
+     * low-passed ones would smooth twice. */
+    accumulateDisplay(rpmRaw * KMH_PER_RPM, pInstant, dt);
 
     evaluateWarnings();
 }
