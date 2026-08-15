@@ -70,7 +70,7 @@ Window {
         running: demoMode
         loops: Animation.Infinite
         NumberAnimation {
-            to: 250
+            to: Vehicle.speedMax
             duration: 40000
         }
         PauseAnimation {
@@ -95,10 +95,13 @@ Window {
     QtObject {
         id: live
         readonly property real speed: fixedSpeed >= 0 ? fixedSpeed : demoMode ? root.demoSpeed : Vehicle.speed
-        // Watts. 25 W per km/h in the demo, so power lines up with the right
-        // scale: 40 km/h is 1 kW, 80 is 2, up to 240 being 6. Without that the
-        // readout and the light would disagree about which mark they are on.
-        readonly property real power: fixedSpeed >= 0 ? fixedSpeed * 25 : demoMode ? root.demoSpeed * 25 : Vehicle.power
+        // Watts. Held proportional to speed across the demo, so the two dials
+        // reach their matching marks together — the ring is driven by speed
+        // alone, so anything else would light the power scale at the wrong
+        // number. Full scale on one is full scale on the other.
+        readonly property real power: fixedSpeed >= 0 ? fixedSpeed / Vehicle.speedMax * Vehicle.powerMax
+                                                      : demoMode ? root.demoSpeed / Vehicle.speedMax * Vehicle.powerMax
+                                                                 : Vehicle.power
     }
 
     // glowY is indexed by scaleValues, so a short array silently produces NaN
@@ -620,7 +623,20 @@ Window {
     //
     // They run bottom-centre round to top, the same direction the light fills,
     // so the lit edge sweeps past them in order.
-    readonly property var scaleValues: [0, 40, 80, 120, 160, 200, 240]
+    // Generated from the backend's full scale rather than written out, so the
+    // marks and the value the reading saturates at cannot drift apart. Seven
+    // evenly spaced steps, because glowY and scaleY are fitted to seven
+    // positions — change the count and both tables need refitting.
+    //
+    // Was a hardcoded 0..240. The motor tops out at 800 rpm, which is 60 km/h
+    // here, so the old dial used a quarter of its sweep and the top two thirds
+    // were unreachable.
+    readonly property var scaleValues: {
+        const n = 7, out = [];
+        for (let i = 0; i < n; ++i)
+            out.push(Math.round(Vehicle.speedMax * i / (n - 1)));
+        return out;
+    }
     readonly property var scaleLX: [0.34, 0.265, 0.20, 0.17, 0.15, 0.17, 0.24]
     readonly property var scaleY: [0.75, 0.735, 0.71, 0.60, 0.4640, 0.365, 0.33]
 
@@ -640,12 +656,20 @@ Window {
         }
     }
 
-    // The right side is the power scale in kW, sharing the left side's
-    // positions: 1 sits where 40 does, 2 where 80, and so on. Since the ring is
-    // driven by speed, the light arriving at "1" is the same instant it arrives
-    // at "40" — which only reads correctly because the demo ties power to speed
-    // at 25 W per km/h, so 40 km/h is exactly 1 kW.
-    readonly property var scaleValuesRight: [0, 1, 2, 3, 4, 5, 6]
+    // The right side is the power scale, in watts, sharing the left side's
+    // positions: the first mark sits where the speed dial's first mark does,
+    // and so on. Since the ring is driven by speed, the light arriving at one
+    // is the same instant it arrives at the other — which only reads correctly
+    // while power tracks speed proportionally, as it does in the demo.
+    //
+    // Watts, not kilowatts. The motor is rated 450W, so a kW scale would have
+    // read 0.4 across the whole range and never moved off its first mark.
+    readonly property var scaleValuesRight: {
+        const n = 7, out = [];
+        for (let i = 0; i < n; ++i)
+            out.push(Math.round(Vehicle.powerMax * i / (n - 1)));
+        return out;
+    }
 
     Repeater {
         model: root.scaleValuesRight.length
@@ -1584,15 +1608,10 @@ Window {
         Readout {
             x: screen.w * 0.78 - width / 2
             anchors.verticalCenter: parent.verticalCenter
-            // Backend power is watts; shown as kW, so the readout stays a
-            // single digit instead of a four-digit number.
-            //
-            // floor, not round: rounding ticks over at the halfway point, so
-            // the readout would read 2 while the light was still climbing
-            // between the 1 and 2 marks. Truncating makes it change exactly as
-            // the light arrives.
-            value: Math.floor(live.power / 1000)
-            unit: "KW"
+            // Watts, shown as watts. It used to divide by 1000 for a single
+            // kW digit, which on a 450W motor meant a readout permanently at 0.
+            value: Math.round(live.power)
+            unit: "W"
             caption: "POWER"
         }
     }

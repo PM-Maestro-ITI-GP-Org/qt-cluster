@@ -90,6 +90,26 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     const float aPower = dt > 0.f ? dt / (TAU_POWER_S + dt) : 0.f;
 
     /* --- electricals -------------------------------------------------------
+     * A note on what this actually sees. Voltage and current are sampled at
+     * 20kHz and arrive in blocks of 200 rows at 100Hz, but the snapshot holds
+     * only the newest row -- so one sample in 200 reaches here, and which one
+     * is arbitrary with respect to both the electrical cycle and the inverter's
+     * switching.
+     *
+     * That is survivable for power only because the three-phase sum below is
+     * steady through the cycle rather than pulsating, so it does not matter
+     * where in the cycle the sample lands. What remains is switching noise,
+     * which the 0.4s low pass averages over roughly forty samples.
+     *
+     * If this ever needs to be better -- true RMS, harmonics, anything
+     * per-cycle -- the block ring is the place to get it. It carries every row
+     * and motor_ai_client already reads it; the snapshot cannot be made to give
+     * what it does not contain.
+     *
+     * The IMU is unaffected: it is sampled at 1kHz and zero-order held across
+     * the 20kHz rows, so each row repeats a value twenty times and taking the
+     * newest one loses nothing.
+     *
      * Three phase currents and three phase voltages, so instantaneous power is
      * just the sum of their products. For a balanced three-phase set that sum
      * is constant over the cycle rather than pulsating, so one snapshot gives
@@ -119,8 +139,23 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     const float pInstant = va * ia + vb * ib + vc * ic;
 
     /* --- speed -------------------------------------------------------------
-     * Median first to drop tach glitches, then the low pass. */
-    const float rpmRaw = medianRpm(static_cast<float>(snap.rpm));
+     * From the throttle channel, not snap.rpm: no tach is fitted, so the wire's
+     * rpm field is 0 on every row. Channel 7 carries the controller's speed
+     * command, 1.1V closed to 4.2V full over 0..800 rpm.
+     *
+     * Clamped at both ends. Below 1.1V is throttle-closed, not negative speed;
+     * above 4.2V is out of the controller's range and means a miscalibrated
+     * divider rather than a motor over its rating, so it saturates instead of
+     * reading something impossible.
+     *
+     * The median still earns its place. The command line is analogue and sits
+     * next to a switching inverter, so it picks up impulses; those alias
+     * straight through a low pass but not through a median.                   */
+    const float throttleV = static_cast<float>(snap.current[VoltageSpeed]) * SPEED_V_PER_COUNT;
+    m_throttle = qnx_clamp((throttleV - THROTTLE_V_MIN)
+                           / (THROTTLE_V_MAX - THROTTLE_V_MIN), 0.f, 1.f);
+
+    const float rpmRaw = medianRpm(m_throttle * RPM_MAX);
 
     if (!m_primed) {
         /* Adopt the first sample rather than ramping to it from zero, which
@@ -135,12 +170,20 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
 
     /* Deadbands are applied on the way out, never back into the filter state:
      * folding them in would let a reading below the threshold hold the filter
-     * at zero and swallow a real climb out of it. */
-    float speedKmh = m_rpm * KMH_PER_RPM;
-    if (std::abs(speedKmh) < SPEED_DEADBAND)
+     * at zero and swallow a real climb out of it. Same for the saturation --
+     * clamping the state would wind the filter up against its limit and make
+     * it slow to come back down.
+     *
+     * Both gauges saturate at their dial's top rather than running past the
+     * last mark, which the ring's glow would otherwise extrapolate off the end
+     * of the artwork. */
+    float speedKmh = qnx_clamp(m_rpm * KMH_PER_RPM, 0.f, SPEED_MAX_KMH);
+    if (speedKmh < SPEED_DEADBAND)
         speedKmh = 0.f;
 
-    float powerW = m_powerFiltered;
+    /* Signed: regen is real and the sign is worth keeping in the property even
+     * though the dial only sweeps positive. */
+    float powerW = qnx_clamp(m_powerFiltered, -POWER_MAX_W, POWER_MAX_W);
     if (std::abs(powerW) < POWER_DEADBAND)
         powerW = 0.f;
 
@@ -212,8 +255,8 @@ void VehicleBackend::evaluateWarnings()
     const bool sw = m_rpm         >= SPEED_WARN_RPM;
     const bool vw = vibDynamic    >= VIB_WARN_G;
     const bool cw = m_currentRms  >= CURRENT_WARN_A;
-    const bool crit = m_rpm        >= SPEED_CRIT_RPM
-                   || vibDynamic   >= VIB_CRIT_G
+    /* Speed is absent from this on purpose -- see SPEED_WARN_RPM. */
+    const bool crit = vibDynamic   >= VIB_CRIT_G
                    || m_currentRms >= CURRENT_WARN_A * 1.5f;
 
     if (sw   != m_speedWarning)   { m_speedWarning   = sw;   emit speedWarningChanged();   }

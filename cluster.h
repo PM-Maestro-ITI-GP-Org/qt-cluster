@@ -47,6 +47,12 @@ class VehicleBackend : public QObject
     /* --- derived electricals, not displayed but useful to bind ----------- */
     Q_PROPERTY(float currentRms      READ currentRms      NOTIFY electricalChanged)
     Q_PROPERTY(float busVoltage      READ busVoltage      NOTIFY electricalChanged)
+    Q_PROPERTY(float throttle        READ throttle        NOTIFY speedChanged)   /* 0..1 */
+
+    /* Full-scale values, so the QML generates its dial labels from the same
+     * numbers the readings are clamped to and the two cannot disagree. */
+    Q_PROPERTY(float speedMax        READ speedMax        CONSTANT)
+    Q_PROPERTY(float powerMax        READ powerMax        CONSTANT)
 
     Q_PROPERTY(float vibX            READ vibX            NOTIFY vibChanged)
     Q_PROPERTY(float vibY            READ vibY            NOTIFY vibChanged)
@@ -93,12 +99,41 @@ public:
     static constexpr float AMPS_PER_COUNT   = 0.05f;   /* 100 A full scale     */
     static constexpr float VOLTS_PER_COUNT  = 0.1f;    /* ~410 V full scale    */
 
-    /* rpm -> km/h. rpm is already RPM (timer input capture, rpm_scale 1.0).
-     * Wheel circumference in metres over the reduction between motor and
-     * wheel; both are rig properties, not measurements.                       */
-    static constexpr float WHEEL_CIRCUM_M   = 1.90f;
-    static constexpr float GEAR_RATIO       = 8.0f;
-    static constexpr float KMH_PER_RPM      = WHEEL_CIRCUM_M * 60.f / 1000.f / GEAR_RATIO;
+    /* ---- speed, from the throttle channel ---------------------------------
+     * The wire's `rpm` field is dead -- no tach is fitted, so it reads 0 on
+     * every row. Speed is reconstructed from channel 7, the controller's speed
+     * command, which swings 1.1V (closed) to 4.2V (full) across the motor's
+     * 0..800 rpm range.
+     *
+     * This is a COMMAND, not a measurement. It says what speed is being asked
+     * for, not what the shaft is doing: under load the motor sits below it, and
+     * a stalled motor still reads full throttle. Nothing here can tell the
+     * difference. Wire a tach into the rpm field and this whole path should go.
+     *
+     * 4.2V is above the 3.3V ADC reference, so the signal must reach the pin
+     * through a divider. SPEED_DIVIDER is that ratio and is a guess -- 2:1 puts
+     * the range at 0.55..2.1V, comfortably inside the ADC. CALIBRATE IT: read
+     * raw counts at closed and full throttle and solve for the two ends.      */
+    static constexpr float RPM_MAX          = 800.f;   /* motor's rated maximum */
+    static constexpr float THROTTLE_V_MIN   = 1.1f;
+    static constexpr float THROTTLE_V_MAX   = 4.2f;
+    static constexpr float ADC_VREF         = 3.3f;
+    static constexpr float ADC_COUNTS       = 4095.f;
+    static constexpr float SPEED_DIVIDER    = 2.0f;
+    static constexpr float SPEED_V_PER_COUNT = ADC_VREF / ADC_COUNTS * SPEED_DIVIDER;
+
+    /* Dial top, and the only number to change to rescale the speed gauge --
+     * the labels are generated from it. 800 rpm maps here exactly, so the
+     * needle uses the full sweep and saturates rather than running past the
+     * last mark. Equivalent to a 1.25m wheel driven direct; adjust for the
+     * rig's real wheel and reduction.                                         */
+    static constexpr float SPEED_MAX_KMH    = 60.f;
+    static constexpr float KMH_PER_RPM      = SPEED_MAX_KMH / RPM_MAX;
+
+    /* Power dial top. The motor is rated 450W, so the old 0..6kW scale left the
+     * needle in the bottom 7% of its sweep. Watts, not kilowatts -- at this
+     * size kW would read 0.4 and never move.                                  */
+    static constexpr float POWER_MAX_W      = 450.f;
 
     /* ---- filtering --------------------------------------------------------
      * Time constants in seconds, applied as a one-pole low pass against the
@@ -125,18 +160,31 @@ public:
     /* Raw MPU6050 sensitivity at +/-2g. */
     static constexpr float MPU_COUNTS_PER_G = 16384.f;
 
-    /* ---- thresholds -- tune to the rig ----------------------------------- */
-    static constexpr float SPEED_WARN_RPM   = 3000.f;
-    static constexpr float SPEED_CRIT_RPM   = 5000.f;
+    /* ---- thresholds -- tune to the rig -------------------------------------
+     * Scaled to this motor. The previous 3000/5000 rpm pair was sized for a
+     * machine six times faster and could never have fired.
+     *
+     * There is no speed CRITICAL any more. Speed is reconstructed from a
+     * command that is clamped to full throttle, so it cannot report an
+     * overspeed -- a runaway shaft would look identical to full throttle. That
+     * needs a tach, not a threshold. What is left warns at near-maximum, which
+     * is a real thing to show.                                                */
+    static constexpr float SPEED_WARN_RPM   = RPM_MAX * 0.95f;
     static constexpr float VIB_WARN_G       = 2.f;
     static constexpr float VIB_CRIT_G       = 4.f;
-    static constexpr float CURRENT_WARN_A   = 50.f;
+    /* 450W at a ~24V pack is about 19A. Rated current is what this should be
+     * set from once the pack voltage is known -- the bus voltage is measured
+     * on channel 6, so it could be derived instead of assumed. */
+    static constexpr float CURRENT_WARN_A   = 20.f;
 
     float speed()         const { return m_speedKmh; }
     float power()         const { return m_powerW; }
     float rpm()           const { return m_rpm; }
     float currentRms()    const { return m_currentRms; }
     float busVoltage()    const { return m_busVoltage; }
+    float throttle()      const { return m_throttle; }
+    float speedMax()      const { return SPEED_MAX_KMH; }
+    float powerMax()      const { return POWER_MAX_W; }
 
     float vibX()          const { return m_vibX; }
     float vibY()          const { return m_vibY; }
@@ -189,6 +237,7 @@ private:
     bool  m_primed      = false; /* first snapshot seen */
     float m_currentRms  = 0.f;
     float m_busVoltage  = 0.f;
+    float m_throttle    = 0.f;   /* 0..1, from the speed command channel */
     float m_vibX        = 0.f;
     float m_vibY        = 0.f;
     float m_vibZ        = 0.f;
