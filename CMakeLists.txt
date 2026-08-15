@@ -61,6 +61,8 @@ qt_add_qml_module(appCluster
         cluster.cpp
         SpiReader.h
         SpiReader.cpp
+        AiReader.h
+        AiReader.cpp
         motor_wire.h
     RESOURCES
         images.qrc

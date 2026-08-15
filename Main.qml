@@ -40,6 +40,10 @@ Window {
     readonly property color gearIdleColor: "#4c5c70" // the gears not selected
     readonly property color faultColor: "#ff2b2b"   // telltales and motor lamp
     readonly property color iconColor: "white"      // the telltales while idle
+    // The overhead road drawn in fault mode. Sampled off the rails in
+    // cluster_road.png at their brightest, so the two roads are the same colour
+    // and the swap does not read as a change of scene.
+    readonly property color topRoadColor: "#a4aab8"
 
     // The car photographs are near-white, so they can be pushed to any body
     // colour by colorizing them — luminance is preserved, so the panel shading,
@@ -66,7 +70,7 @@ Window {
         running: demoMode
         loops: Animation.Infinite
         NumberAnimation {
-            to: 250
+            to: Vehicle.speedMax
             duration: 40000
         }
         PauseAnimation {
@@ -88,13 +92,42 @@ Window {
     // smooth it in VehicleBackend rather than reintroducing either of those.
     // CLUSTER_SPEED wins over both the demo sweep and the backend, so the glow
     // can be parked on one number while glowY is tuned.
+    // Two pairs, and which one a widget uses matters. `speed`/`power` are
+    // continuous and drive the ring's glow; `speedShown`/`powerShown` change
+    // twice a second and drive the numerals. See DISPLAY_PERIOD_S in cluster.h.
     QtObject {
         id: live
         readonly property real speed: fixedSpeed >= 0 ? fixedSpeed : demoMode ? root.demoSpeed : Vehicle.speed
-        // Watts. 25 W per km/h in the demo, so power lines up with the right
-        // scale: 40 km/h is 1 kW, 80 is 2, up to 240 being 6. Without that the
-        // readout and the light would disagree about which mark they are on.
-        readonly property real power: fixedSpeed >= 0 ? fixedSpeed * 25 : demoMode ? root.demoSpeed * 25 : Vehicle.power
+        // Watts. Held proportional to speed across the demo, so the two dials
+        // reach their matching marks together — the ring is driven by speed
+        // alone, so anything else would light the power scale at the wrong
+        // number. Full scale on one is full scale on the other.
+        readonly property real power: fixedSpeed >= 0 ? fixedSpeed / Vehicle.speedMax * Vehicle.powerMax
+                                                      : demoMode ? root.demoSpeed / Vehicle.speedMax * Vehicle.powerMax
+                                                                 : Vehicle.power
+
+        // The numerals. On hardware these come from the backend's 500ms window
+        // mean; the demo has no noise to average, so it latches the sweep at
+        // the same 2 Hz to keep the two paths behaving alike.
+        readonly property real speedShown: (fixedSpeed >= 0 || demoMode) ? root.demoHeldSpeed
+                                                                         : Vehicle.speedDisplay
+        readonly property real powerShown: (fixedSpeed >= 0 || demoMode) ? root.demoHeldPower
+                                                                         : Vehicle.powerDisplay
+    }
+
+    // Demo-side 2 Hz latch, mirroring what the backend does for real data.
+    property real demoHeldSpeed: 0
+    property real demoHeldPower: 0
+
+    Timer {
+        interval: Math.round(1000 / Vehicle.displayHz)
+        running: demoMode || fixedSpeed >= 0
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            root.demoHeldSpeed = live.speed;
+            root.demoHeldPower = live.power;
+        }
     }
 
     // glowY is indexed by scaleValues, so a short array silently produces NaN
@@ -211,6 +244,249 @@ Window {
         smooth: true
         mipmap: true
         opacity: root.faultMode ? 0.0 : 1.0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 260
+            }
+        }
+    }
+
+    // --- Fault-mode road (overhead) ------------------------------------------
+    // cluster_road.png seen from straight above, so swapping the two reads as the
+    // camera moving rather than as a different scene. It crossfades against the
+    // perspective road on the same 260ms, so the lens is never empty.
+    //
+    // Drawn here rather than generated: make_bezel_layers.py can only split what
+    // is already in the source artwork, and there is no overhead road in it. As
+    // QML the geometry below is the only thing to edit — no regeneration step.
+    //
+    // Every proportion below was measured off cluster_road.png rather than
+    // chosen, which is what makes the two roads look like one road. Per side,
+    // working outward from the empty centre lane:
+    //
+    //   dim band  ]  the lane edge, drawn as two lines with a dark gap between
+    //   dark gap  ]  them — that gap is what gives the bar its bevelled look.
+    //   bright line  The brightest thing in the graphic; sits on the OUTSIDE.
+    //   shoulder     Empty, and much wider than the bar itself.
+    //   outer line   Thin, about the weight of the bright line.
+    //
+    // The ticks ladder the shoulder — they run from the outer line to the bar,
+    // and never cross the centre. The centre lane carries no marking at all;
+    // that is where the car goes.
+    //
+    // The widths are fractions of the inner lane gap, and they hold at both ends
+    // of the perspective graphic (measured at gaps of 113px and 185px, agreeing
+    // to within 0.005), so they are the artwork's real proportions rather than
+    // one sample. Change topRoadLane and the whole figure scales with it.
+    //
+    // Declared before both cars, so it paints under them and the car sits in the
+    // lane rather than behind it.
+    //
+    // The band is bounded by what is already centred in the lens: the now-playing
+    // strip at 0.17 above, the gear letters at 0.86 below.
+    //
+    // 0.108 puts the overhead car across 64% of the lane, which is the fraction
+    // the rear-view car covers of the perspective lane it sits in — so the car
+    // is the same size relative to its road in both views.
+    readonly property real topRoadLane: 0.108      // inner gap, fraction of artW
+    // 0.042 rather than the artwork's 0.049. The perspective bar is 10.6px wide
+    // on screen where it is furthest away and 20.2px where it is nearest; a
+    // constant-width bar has to pick one number out of that range, and sitting
+    // just under the middle of it is what reads as the same weight.
+    readonly property real topRoadDim: 0.042       // the rest are fractions of that gap
+    readonly property real topRoadBevel: 0.016
+    readonly property real topRoadBright: 0.033
+    // 0.50, up from the artwork's 0.327. The ratio is right for a lane seen in
+    // perspective, where the shoulder fan spreads wide toward the viewer, but
+    // held at constant width it left the overhead road a narrow tall corridor
+    // against a perspective road that is wide and low. Widening it opens the
+    // footprint out; past about 0.55 the ladders start to dominate the car.
+    readonly property real topRoadShoulder: 0.50
+    readonly property real topRoadOuter: 0.027
+    readonly property real topRoadTickW: 0.012
+    // Four, matching the artwork. In perspective the ticks bunch up as they
+    // recede and read as a fan; held at constant spacing they read as a ladder
+    // instead, so they are kept much fainter than measured to stay a texture
+    // rather than compete with the car.
+    readonly property int topRoadTicks: 4
+    // Band extent, fraction of artH. The top has to clear the clock, which sits
+    // at the top of the `screen` item at screenTopFrac (0.235) and runs to about
+    // 0.29 — at 0.25 the road ran straight up behind the digits.
+    readonly property real topRoadTop: 0.35
+    // Clears the gear letters, which start at 0.83. The fade has already taken
+    // the road to nothing by then; lower this and it reappears behind the P N R.
+    readonly property real topRoadBottom: 0.80
+    // Fractions of the band faded at each end, and they are not equal. The top
+    // is where the road runs out into the empty part of the lens under the
+    // clock, so it needs a long ramp to not read as a cut line; the bottom is
+    // hidden against the gear row and can be shorter.
+    readonly property real topRoadFadeTop: 0.42
+    readonly property real topRoadFadeBottom: 0.18
+
+    // Brightness, and these are the artwork's own ratios: the dim band and the
+    // ticks sit near 0.4 of the bright line, the outer line at 0.5.
+    //
+    // The master is 1.0 and should stay there. Measured on a horizontal slice,
+    // the bright line then peaks at 154 against the perspective bar's 154 — the
+    // same white, not a dimmed approximation of it. Earlier passes ran it at
+    // 0.55 to hold the overall weight down, which is what made the lines look
+    // washed rather than drawn; the weight belongs in the widths and the fade,
+    // not in a blanket dimming of a graphic that is supposed to match.
+    readonly property real topRoadOpacity: 1.0
+    readonly property real topRoadDimOpacity: 0.40
+    readonly property real topRoadOuterOpacity: 0.50
+    readonly property real topRoadTickOpacity: 0.30
+
+    Item {
+        id: topRoad
+
+        readonly property real lane: root.artW * root.topRoadLane
+        readonly property real wDim: lane * root.topRoadDim
+        readonly property real wBevel: lane * root.topRoadBevel
+        readonly property real wBright: lane * root.topRoadBright
+        readonly property real wShoulder: lane * root.topRoadShoulder
+        readonly property real wOuter: lane * root.topRoadOuter
+        // Centre to each element's inner edge, outward.
+        readonly property real dBar: lane / 2
+        readonly property real dBarOuter: dBar + wDim + wBevel + wBright
+        readonly property real dOuter: dBarOuter + wShoulder
+        readonly property real halfWidth: dOuter + wOuter
+
+        width: halfWidth * 2
+        height: root.artH * (root.topRoadBottom - root.topRoadTop)
+        x: root.artX + root.artW * 0.5 - width / 2
+        y: root.artY + root.artH * root.topRoadTop
+        visible: false
+        layer.enabled: true
+
+        // One pass per side. `inner` is the distance from the lane centre to the
+        // element's inner edge, so every rect is placed by the same rule and the
+        // two sides cannot drift apart.
+        Repeater {
+            model: [-1, 1]
+
+            delegate: Item {
+                id: shoulder
+                anchors.fill: parent
+                readonly property real side: modelData
+
+                function place(inner, w) {
+                    return shoulder.side > 0 ? topRoad.width / 2 + inner
+                                             : topRoad.width / 2 - inner - w;
+                }
+
+                // Ticks first, so the lines draw over their ends.
+                Repeater {
+                    model: root.topRoadTicks
+
+                    delegate: Rectangle {
+                        width: topRoad.wShoulder
+                        height: Math.max(1, topRoad.lane * root.topRoadTickW)
+                        x: shoulder.place(topRoad.dBarOuter, width)
+                        y: topRoad.height * (index + 0.5) / root.topRoadTicks - height / 2
+                        color: root.topRoadColor
+                        opacity: root.topRoadTickOpacity
+                    }
+                }
+
+                Rectangle {
+                    width: Math.max(1, topRoad.wDim)
+                    height: parent.height
+                    x: shoulder.place(topRoad.dBar, width)
+                    color: root.topRoadColor
+                    opacity: root.topRoadDimOpacity
+                }
+
+                Rectangle {
+                    width: Math.max(1, topRoad.wBright)
+                    height: parent.height
+                    x: shoulder.place(topRoad.dBar + topRoad.wDim + topRoad.wBevel, width)
+                    color: root.topRoadColor
+                }
+
+                Rectangle {
+                    width: Math.max(1, topRoad.wOuter)
+                    height: parent.height
+                    x: shoulder.place(topRoad.dOuter, width)
+                    color: root.topRoadColor
+                    opacity: root.topRoadOuterOpacity
+                }
+            }
+        }
+    }
+
+    // Faded at both ends so the road runs out of the lens instead of stopping on
+    // a line — the perspective road does the same thing by converging.
+    Rectangle {
+        id: topRoadMask
+        x: topRoad.x
+        y: topRoad.y
+        width: topRoad.width
+        height: topRoad.height
+        visible: false
+        layer.enabled: true
+        // Smoothstep rather than a straight ramp. A linear fade leaves a visible
+        // knee where it meets full strength — the line appears to start, which
+        // is the thing the fade exists to avoid. The two intermediate stops per
+        // end are smoothstep sampled at a quarter and three quarters (0.156 and
+        // 0.844), which is close enough to the curve at this length.
+        gradient: Gradient {
+            GradientStop {
+                position: 0.0
+                color: "transparent"
+            }
+            GradientStop {
+                position: root.topRoadFadeTop * 0.25
+                color: Qt.rgba(1, 1, 1, 0.156)
+            }
+            GradientStop {
+                position: root.topRoadFadeTop * 0.75
+                color: Qt.rgba(1, 1, 1, 0.844)
+            }
+            GradientStop {
+                position: root.topRoadFadeTop
+                color: "white"
+            }
+            GradientStop {
+                position: 1.0 - root.topRoadFadeBottom
+                color: "white"
+            }
+            GradientStop {
+                position: 1.0 - root.topRoadFadeBottom * 0.75
+                color: Qt.rgba(1, 1, 1, 0.844)
+            }
+            GradientStop {
+                position: 1.0 - root.topRoadFadeBottom * 0.25
+                color: Qt.rgba(1, 1, 1, 0.156)
+            }
+            GradientStop {
+                position: 1.0
+                color: "transparent"
+            }
+        }
+    }
+
+    // No bloom pass here, deliberately. One was tried, on the reasoning that the
+    // artwork's lines are lit rather than drawn and flat rectangles beside them
+    // read as tape. It did the opposite: a blur wide enough to see spreads a 4px
+    // line over about 16px, so the bars looked both wider and softer than the
+    // ones they were meant to match. The artwork's own falloff is only a pixel
+    // or two — far below what a blur can usefully produce at this size.
+    MultiEffect {
+        x: topRoad.x
+        y: topRoad.y
+        width: topRoad.width
+        height: topRoad.height
+        source: topRoad
+        maskEnabled: true
+        maskSource: topRoadMask
+        // Same pair as the ring's mask: puts the ramp's edges at 0 and 1 so the
+        // gradient's alpha passes through proportionally instead of clipping to
+        // a hard edge. See the note on the ring for why min cannot stay at 0.
+        maskThresholdMin: 0.5
+        maskSpreadAtMin: 1.0
+        opacity: root.faultMode ? root.topRoadOpacity : 0.0
+        visible: opacity > 0
         Behavior on opacity {
             NumberAnimation {
                 duration: 260
@@ -373,7 +649,20 @@ Window {
     //
     // They run bottom-centre round to top, the same direction the light fills,
     // so the lit edge sweeps past them in order.
-    readonly property var scaleValues: [0, 40, 80, 120, 160, 200, 240]
+    // Generated from the backend's full scale rather than written out, so the
+    // marks and the value the reading saturates at cannot drift apart. Seven
+    // evenly spaced steps, because glowY and scaleY are fitted to seven
+    // positions — change the count and both tables need refitting.
+    //
+    // Was a hardcoded 0..240. The motor tops out at 800 rpm, which is 60 km/h
+    // here, so the old dial used a quarter of its sweep and the top two thirds
+    // were unreachable.
+    readonly property var scaleValues: {
+        const n = 7, out = [];
+        for (let i = 0; i < n; ++i)
+            out.push(Math.round(Vehicle.speedMax * i / (n - 1)));
+        return out;
+    }
     readonly property var scaleLX: [0.34, 0.265, 0.20, 0.17, 0.15, 0.17, 0.24]
     readonly property var scaleY: [0.75, 0.735, 0.71, 0.60, 0.4640, 0.365, 0.33]
 
@@ -393,12 +682,20 @@ Window {
         }
     }
 
-    // The right side is the power scale in kW, sharing the left side's
-    // positions: 1 sits where 40 does, 2 where 80, and so on. Since the ring is
-    // driven by speed, the light arriving at "1" is the same instant it arrives
-    // at "40" — which only reads correctly because the demo ties power to speed
-    // at 25 W per km/h, so 40 km/h is exactly 1 kW.
-    readonly property var scaleValuesRight: [0, 1, 2, 3, 4, 5, 6]
+    // The right side is the power scale, in watts, sharing the left side's
+    // positions: the first mark sits where the speed dial's first mark does,
+    // and so on. Since the ring is driven by speed, the light arriving at one
+    // is the same instant it arrives at the other — which only reads correctly
+    // while power tracks speed proportionally, as it does in the demo.
+    //
+    // Watts, not kilowatts. The motor is rated 450W, so a kW scale would have
+    // read 0.4 across the whole range and never moved off its first mark.
+    readonly property var scaleValuesRight: {
+        const n = 7, out = [];
+        for (let i = 0; i < n; ++i)
+            out.push(Math.round(Vehicle.powerMax * i / (n - 1)));
+        return out;
+    }
 
     Repeater {
         model: root.scaleValuesRight.length
@@ -430,46 +727,348 @@ Window {
     // and there is no odometer at all. Bound so they light up correctly once
     // there is something behind them; the demo values just make the layout
     // legible without hardware.
-    readonly property real soc: demoMode ? 78 : Vehicle.battery
-    readonly property real odoKm: demoMode ? 12480 : 0
+    // Demo only: one 0..1 ramp driving both status bands, so every fill level
+    // gets shown. Slower than the speed sweep on purpose — these are 11-segment
+    // meters and a fast ramp just flickers between steps.
+    property real demoLevel: 0
 
-    component CornerStat: Column {
-        property string value: ""
-        property string caption: ""
-        spacing: root.artUnitH * 0.004
-
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: value
-            color: root.textColor
-            opacity: 0.92
-            font.pixelSize: root.artUnitH * 0.055
-            font.family: "Century Gothic"
+    SequentialAnimation on demoLevel {
+        running: demoMode
+        loops: Animation.Infinite
+        NumberAnimation {
+            to: 1
+            duration: 14000
         }
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: caption
-            color: root.accent
-            opacity: 0.75
-            font.pixelSize: root.artUnitH * 0.026
-            font.weight: Font.Bold
-            font.letterSpacing: 2
-            font.family: "Century Gothic"
+        PauseAnimation {
+            duration: 1200
+        }
+        NumberAnimation {
+            to: 0
+            duration: 14000
+        }
+        PauseAnimation {
+            duration: 1200
         }
     }
 
-    CornerStat {
-        x: root.artX + root.artW * 0.225 - width / 2
-        y: root.artY + root.artH * root.bottomRowY
-        value: Math.round(root.soc) + "%"
-        caption: "SOC"
+    // Charge only. The odometer went with the KM TOTAL readout — it had no
+    // backend behind it either way, VehicleBackend has no odometer at all.
+    readonly property real soc: demoMode ? root.demoLevel * 100 : Vehicle.battery
+
+    // What the right-hand band shows: 1 is full margin to every measured limit,
+    // 0 is at one of them. VehicleBackend::health composes it; see the note
+    // there for why it is a worst-of rather than a blend.
+    //
+    // The demo runs it inverted against demoLevel so the two bands are never at
+    // the same fill and every combination shows up — full charge beside a
+    // healthy motor, empty beside a failing one — which is what exercises the
+    // colour ramp at both ends.
+    //
+    // This band used to show motor temperature. Nothing measures temperature on
+    // the v4 wire, so on hardware it read 0 and never moved.
+    readonly property real healthFrac: demoMode ? 1 - root.demoLevel : Vehicle.health
+
+    // The SOC and KM TOTAL readouts that used to sit at bottomRowY are gone; the
+    // status bands carry charge now, and there was never an odometer to read.
+    // bottomRowY is still what bounds those bands from below, so it stays.
+
+    // --- Status bars ---------------------------------------------------------
+    // Two thin meters lying along the ring's lower shoulders, charge on the left
+    // over the SOC readout, motor temperature on the right.
+    //
+    // They follow the ring rather than lying beside it. A straight bar cannot:
+    // tracing the lowest lit pixel of cluster_ring_base.png across the shoulder,
+    // the tangent swings from 60 degrees at the outer end to 0 at the inner one,
+    // so any single rotation is wrong at both ends. An earlier version tilted a
+    // rectangle by 13 degrees, the average, and sat off the artwork at the tips.
+    //
+    // So the path below IS that trace: the ring's own edge, smoothed, pushed 20px
+    // out along its normal to clear the artwork, and resampled at equal arc
+    // length. 201px of arc in 24 equal segments. Equal spacing is what lets the
+    // fill treat segment i as covering i/24 to (i+1)/24 of the reading without
+    // carrying a cumulative length table.
+    //
+    // Only the left path is stored; the right is mirrored, matching how the ring
+    // scale is handled. Regenerate both if the bezel art ever changes shape.
+    readonly property var statusPathX: [0.1421, 0.1451, 0.1484, 0.1523, 0.1568, 0.1616, 0.1663, 0.1713, 0.1768, 0.1823, 0.1881, 0.1942, 0.2007, 0.2073, 0.2139, 0.2208, 0.2276, 0.2345, 0.2413, 0.2482, 0.2551, 0.2620, 0.2690, 0.2759, 0.2828]
+    readonly property var statusPathY: [0.7232, 0.7358, 0.7480, 0.7595, 0.7701, 0.7803, 0.7906, 0.8001, 0.8087, 0.8170, 0.8247, 0.8315, 0.8361, 0.8403, 0.8439, 0.8464, 0.8487, 0.8503, 0.8521, 0.8532, 0.8547, 0.8564, 0.8566, 0.8566, 0.8566]
+
+    // Bars cut by parallel lines at a fixed 75 degrees, then masked to a curved
+    // band. Two separate ideas, and both are needed:
+    //
+    //   - every cut is parallel to every other, so each bar is the strip between
+    //     two parallel lines: a plain rectangle, rotated. Cuts that rotated with
+    //     the curve were tried and read as bricks in an arc rather than as a
+    //     scale.
+    //   - the inner and outer edges come from the mask, not the geometry, so
+    //     they stay smooth curves however the bars are cut.
+    //
+    // The mask is images/status_bands.png, generated by tools/make_status_bands.py
+    // from the ring's own shoulder — so the band is parallel to the gauge by
+    // construction. Re-run that script if the bezel artwork changes shape, and
+    // keep statusBandX0 in step with X0 there.
+    //
+    // The bars are deliberately longer than the band is thick and let the mask
+    // trim them; sizing them to fit exactly would need the band's thickness
+    // expressed twice, here and in the script, with nothing keeping the two in
+    // step.
+    readonly property real statusBandX0: 0.150     // band extent, fraction of artW
+    readonly property real statusBandX1: 0.283     // must match X0/X1 in the script
+    readonly property int statusSegments: 11
+    readonly property real statusSegDepth: 0.200   // fraction of artUnitH, before masking
+
+    // Rotation of each bar. The cuts sit at 75 degrees, so the strip between two
+    // of them runs at 75 - 90; the right-hand band mirrors to +15.
+    readonly property real statusSegAngle: -15
+
+    // Bar centres and widths, generated alongside the mask. They are a table
+    // rather than a formula because the width that matters is the one you see —
+    // the on-screen distance between two cuts — and the map from that back to a
+    // position along the curve has no closed form.
+    //
+    // Widest bar 16.1px at the outer end down to 5.4px at the inner, a ratio of
+    // 3. Spacing them evenly along the band instead looks wrong: where the
+    // shoulder is steep it runs nearly parallel to the cut, so an evenly spaced
+    // bar still comes out a thin sliver there.
+    //
+    // Left-hand values; the right band mirrors about the artwork centre.
+    readonly property var statusSegCX: [0.15431, 0.17643, 0.19471, 0.21008, 0.22362, 0.23580, 0.24675, 0.25658, 0.26519, 0.27248, 0.27864]
+    readonly property var statusSegCY: [0.76449, 0.80861, 0.83227, 0.84249, 0.84737, 0.85050, 0.85279, 0.85504, 0.85660, 0.85660, 0.85660]
+    readonly property var statusSegW: [0.01332, 0.01243, 0.01154, 0.01065, 0.00976, 0.00888, 0.00799, 0.00710, 0.00621, 0.00533, 0.00444]
+    // 0.040, not the 0.028 it started at. At 15px the symbols read as specks
+    // and the bands looked unlabelled.
+    readonly property real statusIconSize: 0.040   // fraction of artUnitH
+    readonly property real statusIconGap: 0.026    // fraction of artW, past the inner tip
+
+    // The unlit bars, and what ties the pair to the gauge. Not a grey: a dim
+    // ringColor, so the whole band sits in the same family as the neon beside it
+    // and the bars that are off read as unlit gauge rather than as shadow.
+    //
+    // Two earlier attempts at integrating them were worse and are worth not
+    // repeating. A bloom under the bars smeared them. Grading the mask dark at
+    // its edges — copying the ring's own cross-section — put what looked like a
+    // drop shadow around the band, because these bars are short and the dark
+    // edge lands right against their cuts. Colour does the job; light does not.
+    readonly property color statusIdleColor: root.ringColor
+    readonly property real statusIdleOpacity: 0.20
+    readonly property int statusFadeMs: 260
+
+    // --- Health colour ramp ---------------------------------------------------
+    // Full health is `accent` — the same cyan the charge band opposite is drawn
+    // in, so a healthy pair reads as one instrument rather than two. It cools
+    // toward that cyan through the top half, turns red below the midpoint, and
+    // goes dark as it approaches nothing.
+    //
+    // Four stops rather than a single blend, because the interesting behaviour
+    // is not linear: nothing should happen in the top half beyond the colour
+    // coming up to full, and everything happens in the bottom half.
+    //
+    // Interpolated in RGB, not HSV. Hue interpolation from cyan to red takes
+    // the long way round through green and yellow, which would run a rainbow up
+    // the band on the way to a warning.
+    //
+    // The dark end is the point of the last stop: at zero margin the band goes
+    // near-black red rather than bright red. A bright bar reads as a bar that
+    // is *on*; the reading here is that almost nothing is left.
+    readonly property var healthStops: [
+        { t: 0.00, c: Qt.rgba(0.30, 0.02, 0.02, 1) },
+        { t: 0.30, c: Qt.rgba(0.92, 0.13, 0.13, 1) },
+        { t: 0.50, c: Qt.darker(root.accent, 1.45) },
+        { t: 1.00, c: root.accent }
+    ]
+
+    // Smoothstep inside each segment, so the rate of change goes to zero at
+    // every stop and the ramp has no visible corners where two segments meet.
+    function healthColorAt(v) {
+        const stops = root.healthStops;
+        const t = Math.max(0, Math.min(1, v));
+        for (let i = 0; i < stops.length - 1; ++i) {
+            const a = stops[i], b = stops[i + 1];
+            if (t > b.t && i + 2 < stops.length)
+                continue;
+            const u = b.t > a.t ? (t - a.t) / (b.t - a.t) : 0;
+            const f = Math.max(0, Math.min(1, u));
+            const s = f * f * (3 - 2 * f);
+            return Qt.rgba(a.c.r + (b.c.r - a.c.r) * s,
+                           a.c.g + (b.c.g - a.c.g) * s,
+                           a.c.b + (b.c.b - a.c.b) * s, 1);
+        }
+        return stops[stops.length - 1].c;
     }
 
-    CornerStat {
-        x: root.artX + root.artW * 0.775 - width / 2
-        y: root.artY + root.artH * root.bottomRowY
-        value: Math.round(root.odoKm).toLocaleString(Qt.locale("en_US"), "f", 0)
-        caption: "KM TOTAL"
+    // One mask for both bands — the PNG carries the left and right shapes, and
+    // each bar's stripes only exist on its own side, so masking with the shared
+    // image yields that side alone. Flat alpha with a 2px feather; see
+    // tools/make_status_bands.py.
+    Image {
+        id: statusBandMask
+        x: root.artX
+        y: root.artY
+        width: root.artW
+        height: root.artH
+        source: "qrc:/images/images/status_bands.png"
+        fillMode: Image.Stretch
+        smooth: true
+        mipmap: true
+        visible: false
+        layer.enabled: true
+    }
+
+    // Both fill from the inner end outward: index statusSegments - 1 is the
+    // narrow bar nearest the centre and lights first, the wide outer one last.
+    // So the bars get wider as the reading climbs and the meter says "more"
+    // twice — more of them, and each one bigger.
+    component StatusBar: Item {
+        id: sb
+        property real fraction: 0            // 0..1, clamped below
+        property color fillColor: root.accent
+        property real side: -1               // -1 left, +1 right
+        property alias icon: iconImage.source
+
+        readonly property int litCount: Math.round(Math.max(0, Math.min(1, sb.fraction))
+                                                   * root.statusSegments)
+
+        anchors.fill: parent
+
+        // Position at arc fraction `s` along the band's centreline, used only to
+        // place the icon now that the bars come from their own table. The stored
+        // points are equally spaced in arc length, so s maps straight onto the
+        // index. The right bar is the left one reflected about centre.
+        function ptX(s) {
+            const n = root.statusPathX.length - 1;
+            const u = Math.max(0, Math.min(1, s)) * n;
+            const i = Math.min(n - 1, Math.floor(u));
+            const v = root.statusPathX[i] + (root.statusPathX[i + 1] - root.statusPathX[i]) * (u - i);
+            return root.artX + root.artW * (sb.side < 0 ? v : 1 - v);
+        }
+        function ptY(s) {
+            const n = root.statusPathY.length - 1;
+            const u = Math.max(0, Math.min(1, s)) * n;
+            const i = Math.min(n - 1, Math.floor(u));
+            const v = root.statusPathY[i] + (root.statusPathY[i + 1] - root.statusPathY[i]) * (u - i);
+            return root.artY + root.artH * v;
+        }
+        // Every cut is parallel, so a bar is just the strip between two of them:
+        // a rectangle rotated to statusSegAngle, as wide as the gap between its
+        // cuts and long enough that the mask decides where it ends.
+        Item {
+            id: stripes
+            x: root.artX
+            y: root.artY
+            width: root.artW
+            height: root.artH
+            visible: false
+            layer.enabled: true
+
+            Repeater {
+                model: root.statusSegments
+
+                delegate: Rectangle {
+                    id: seg
+                    required property int index
+
+                    // Lights from the inner end, so index 0 — the wide outer bar
+                    // — is the last to come on.
+                    readonly property bool lit: index >= root.statusSegments - sb.litCount
+
+                    width: root.artW * root.statusSegW[index]
+                    height: root.artUnitH * root.statusSegDepth
+                    x: root.artW * (sb.side < 0 ? root.statusSegCX[index]
+                                                : 1 - root.statusSegCX[index]) - width / 2
+                    y: root.artH * root.statusSegCY[index] - height / 2
+                    rotation: sb.side < 0 ? root.statusSegAngle : -root.statusSegAngle
+                    color: seg.lit ? sb.fillColor : root.statusIdleColor
+                    opacity: seg.lit ? 1.0 : root.statusIdleOpacity
+
+                    // Opacity only. `lit` is a discrete flip, so a Behavior
+                    // fades a segment in cleanly.
+                    //
+                    // There is deliberately NO Behavior on color. The health
+                    // ramp moves continuously with the reading, and a Behavior
+                    // restarts on every write -- so it never finishes, and the
+                    // colour stays pinned near wherever it began. It was doing
+                    // exactly that here: the band held its start-up cyan all
+                    // the way down to 14% health while the binding underneath
+                    // was correctly reporting dark red. Same trap the note on
+                    // `live` warns about. The ramp is already smooth because
+                    // its input is.
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: root.statusFadeMs
+                        }
+                    }
+                }
+            }
+        }
+
+        MultiEffect {
+            x: root.artX
+            y: root.artY
+            width: root.artW
+            height: root.artH
+            source: stripes
+            maskEnabled: true
+            maskSource: statusBandMask
+            // Same pair as the ring's mask — see the note there for why min
+            // cannot be left at 0.
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1.0
+        }
+
+        // At the inner tip, carried on past it along the path's closing tangent
+        // so it stands off at the angle the band arrives at rather than square
+        // to it. The outer tip is the wrong end: it is the high, steep one, and
+        // an icon there sits out over the empty corner.
+        readonly property real tipLen: Math.max(0.0001,
+                                                Math.hypot(sb.ptX(1) - sb.ptX(0.98),
+                                                           sb.ptY(1) - sb.ptY(0.98)))
+        readonly property real tipDX: (sb.ptX(1) - sb.ptX(0.98)) / sb.tipLen
+        readonly property real tipDY: (sb.ptY(1) - sb.ptY(0.98)) / sb.tipLen
+
+        Image {
+            id: iconImage
+            width: root.artUnitH * root.statusIconSize
+            height: width
+            x: sb.ptX(1) + sb.tipDX * root.artW * root.statusIconGap - width / 2
+            y: sb.ptY(1) + sb.tipDY * root.artW * root.statusIconGap - height / 2
+            sourceSize.width: width * 2
+            sourceSize.height: height * 2
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            visible: false
+        }
+
+        // Colorized like the telltales so the icons follow `accent` rather than
+        // staying at the #00d4ff baked into the SVGs.
+        MultiEffect {
+            source: iconImage
+            x: iconImage.x
+            y: iconImage.y
+            width: iconImage.width
+            height: iconImage.height
+            colorization: 1.0
+            colorizationColor: root.accent
+        }
+    }
+
+    StatusBar {
+        side: -1
+        fraction: root.soc / 100
+        fillColor: root.accent
+        icon: "qrc:/images/images/icon_battery.svg"
+    }
+
+    // Health, not temperature. The band used to show motor temperature, which
+    // has no sensor and so read 0 forever on hardware; VehicleBackend::health
+    // is the margin to whichever measured limit is closest. Full is good.
+    StatusBar {
+        side: 1
+        fraction: root.healthFrac
+        icon: "qrc:/images/images/icon_health.svg"
+        // Carries the reading twice — length and colour — so a glance catches
+        // it without counting bars. See healthColorAt for the ramp.
+        fillColor: root.healthColorAt(root.healthFrac)
     }
 
     // --- Telltales -----------------------------------------------------------
@@ -500,6 +1099,7 @@ Window {
     readonly property bool faultMode: root.faultEngine || root.faultBattery
                                       || root.faultAbs || root.faultSeatbelt
                                       || Vehicle.criticalAlert
+                                      || Vehicle.aiAlert
 
     component Telltale: Item {
         id: lamp
@@ -612,16 +1212,21 @@ Window {
     // but is held down at the bottom: past about 0.86 of artH the tail crosses
     // the arc the gear indicator hangs off. Raising the centre is what buys the
     // extra size — the two have to move together.
-    readonly property real carHeight: 0.18      // fraction of artUnitH
+    // 0.21, not the 0.18 that fitted car_rear.png. car_rear_chase.png is a
+    // tighter crop at a different aspect (1.333 against 1.560), so the same
+    // height renders it 15% narrower and it stops filling the lane. 0.21 puts it
+    // back at 147.7px wide, which is where the old car sat. Height is the knob
+    // because width is derived from it.
+    readonly property real carHeight: 0.21      // fraction of artUnitH
     readonly property real carY: 0.576          // fraction of artH, top of the rear view
     readonly property real faultCarHeight: 0.38 // fraction of artUnitH
     readonly property real faultCarCentreY: 0.58
 
     Image {
         id: carRear
-        source: "qrc:/images/images/car_rear.png"
+        source: "qrc:/images/images/car_rear_chase.png"
         height: root.artUnitH * root.carHeight
-        width: height * (800 / 513)             // the source's trimmed aspect
+        width: height * (1220 / 915)            // the source's trimmed aspect
         x: root.artX + root.artW * 0.5 - width / 2
         y: root.artY + root.artH * root.carY
         fillMode: Image.PreserveAspectFit
@@ -675,19 +1280,39 @@ Window {
     // current is electrical; an overspeed is the motor running away, so it goes
     // with mechanical. tempWarning and voltageWarning are left out: both are
     // hardcoded false in cluster.h and would only look wired.
-    // Kind and symbol come out of one decision rather than two parallel ones,
-    // so the banner and the icon in the lamp can never name different faults.
-    // First match wins, so a mechanical fault outranks an electrical one when
-    // both are up — the motor is the more urgent of the two.
-    readonly property string errorKind: {
-        if (Vehicle.vibWarning || Vehicle.speedWarning || root.faultEngine)
-            return "MECHANICAL";
+    // Kind, code and symbol come out of one decision rather than three parallel
+    // ones, so the code, the banner and the icon in the lamp can never name
+    // different faults. First match wins, so a mechanical fault outranks an
+    // electrical one when both are up — the motor is the more urgent of the two.
+    //
+    // The OR groups that used to be on one line each are split out here so every
+    // source can carry its own code; the order, and so which fault wins, is
+    // unchanged. Codes are grouped by system: 1x overspeed, 2x electrical,
+    // 3x vibration, 4x braking.
+    readonly property var errorFault: {
+        if (Vehicle.vibWarning)
+            return { kind: "MECHANICAL", code: "E-31" };
+        if (Vehicle.speedWarning)
+            return { kind: "MECHANICAL", code: "E-12" };
+        if (root.faultEngine)
+            return { kind: "MECHANICAL", code: "E-10" };
         if (root.faultAbs)
-            return "MECHANICAL";
-        if (Vehicle.currentWarning || root.faultBattery)
-            return "ELECTRICAL";
-        return "";
+            return { kind: "MECHANICAL", code: "E-40" };
+        if (Vehicle.currentWarning)
+            return { kind: "ELECTRICAL", code: "E-21" };
+        if (root.faultBattery)
+            return { kind: "ELECTRICAL", code: "E-20" };
+        // The model flagged something no measured signal did. Last, so a
+        // reading the cluster can name outranks one it cannot, and with an
+        // empty kind on purpose: that suppresses the motor lamp and its
+        // symbol, which would otherwise accuse the drive unit of a fault the
+        // verdict never located. Fault mode still engages and the code shows.
+        if (Vehicle.aiAlert)
+            return { kind: "", code: "E-90" };
+        return { kind: "", code: "" };
     }
+    readonly property string errorKind: root.errorFault.kind
+    readonly property string errorCode: root.errorFault.code
     // Two symbols, drawn for this lamp at the size it actually renders --
     // see tools/make_fault_icons.py. The corner telltales keep their own
     // artwork; those name a component, this names a system.
@@ -784,11 +1409,97 @@ Window {
         visible: root.errorIcon !== "" && carTop.visible
     }
 
+    // --- AI verdict -----------------------------------------------------------
+    // What the model actually said, in the strip above the clock the now-playing
+    // row used to occupy. The error code below can only say that something is
+    // wrong; this is the only place the reason appears.
+    //
+    // The fault class is preferred over the anomaly verdict: an anomaly result
+    // says a window looked unusual, a class says what it looked like. Falls back
+    // to the anomaly text when there is no class.
+    //
+    // Steady, not blinking. It is a sentence to read, and the code beside the
+    // car is already doing the attention-getting.
+    readonly property string aiVerdict: {
+        if (!Vehicle.aiAlert)
+            return "";
+        const cls = Vehicle.aiFaultClass.trim();
+        return cls !== "" ? cls : Vehicle.aiAnomaly.trim();
+    }
+
+    Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: root.artY + root.artH * root.trackY - height / 2
+        // Capped like the track title was, so a long verdict elides rather than
+        // running out under the telltales in the corners.
+        width: Math.min(implicitWidth, root.artW * 0.34)
+        elide: Text.ElideRight
+        text: root.aiVerdict
+        color: root.faultColor
+        opacity: 0.9
+        font.pixelSize: root.artUnitH * 0.030
+        font.family: "Century Gothic"
+        font.weight: Font.Light
+        font.letterSpacing: 1
+        visible: root.aiVerdict !== ""
+    }
+
+    // --- Error code ----------------------------------------------------------
+    // The code for whatever the lamp is showing, in the empty band between the
+    // clock and the car's nose. Centred, so it sits in the road's empty middle
+    // lane and never lands on a line.
+    //
+    // Blinks at the telltales' 260ms rather than the motor glow's 700ms: this is
+    // the same alarm the corner lamps are raising, and at the slower rate the
+    // two beat against each other. Both animations start when the same fault
+    // flags go up, so they stay in phase without being driven from one clock.
+    //
+    // Note this is the one place the flicker is applied to *text*. If it turns
+    // out to be hard to read on the panel, raise the 0.2 floor rather than the
+    // duration — slowing it is what breaks step with the lamps.
+    readonly property real errorCodeY: 0.365    // fraction of artH, row centre
+
+    Text {
+        id: errorCodeText
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: root.artY + root.artH * root.errorCodeY - height / 2
+        text: root.errorCode
+        color: root.faultColor
+        font.pixelSize: root.artUnitH * 0.034
+        font.family: "Century Gothic"
+        font.weight: Font.Light
+        font.letterSpacing: 3
+        visible: root.errorCode !== ""
+
+        SequentialAnimation on opacity {
+            running: errorCodeText.visible
+            loops: Animation.Infinite
+            NumberAnimation {
+                to: 0.2
+                duration: 260
+            }
+            NumberAnimation {
+                to: 1.0
+                duration: 260
+            }
+            onStopped: errorCodeText.opacity = 1.0
+        }
+    }
 
     // --- Gear indicator ------------------------------------------------------
-    // Static: VehicleBackend exposes no gear signal. Bind `gear` to one when
-    // there is something to bind it to.
-    property string gear: "P"
+    // Derived from speed, because VehicleBackend still exposes no gear signal:
+    // moving means D, stopped means P. Replace this binding the moment there is
+    // a real selector to read — a cluster that infers the gear will disagree
+    // with the lever the first time the car rolls in neutral.
+    //
+    // 0.5 km/h rather than 0, so a jittery reading at a standstill cannot flap
+    // the indicator between P and D.
+    //
+    // R and N are drawn but cannot light: nothing here carries direction, and
+    // speed alone cannot tell reverse from forward or neutral from park. They
+    // are in the row because the row is a fixed legend — the selected gear is
+    // picked out of it, not printed on its own.
+    readonly property string gear: live.speed > 0.5 ? "D" : "P"
 
     Row {
         anchors.horizontalCenter: parent.horizontalCenter
@@ -798,7 +1509,9 @@ Window {
         spacing: root.artW * 0.028
 
         Repeater {
-            model: ["P", "N", "R"]
+            // Order as requested. Note this is not the PRND of a real selector
+            // gate — worth revisiting if this ever has to match a physical lever.
+            model: ["P", "D", "N", "R"]
             delegate: Text {
                 text: modelData
                 color: modelData === root.gear ? root.textColor : root.gearIdleColor
@@ -868,7 +1581,10 @@ Window {
     // trackElapsed is seconds. It is a plain value rather than something that
     // counts itself, so whatever owns playback stays the single source of
     // truth and a pause does not need a second signal to stop a local timer.
-    property string trackTitle: demoMode ? "Midnight City — M83" : ""
+    // Off for now. An empty title hides the whole strip, which is the same path
+    // "nothing is playing" takes — so restoring it is putting the demo string
+    // back, not undoing a deletion. The Row and its layout below are untouched.
+    property string trackTitle: ""
     property int trackElapsed: 0
 
     function formatElapsed(seconds) {
@@ -972,7 +1688,7 @@ Window {
         Readout {
             x: screen.w * 0.22 - width / 2
             anchors.verticalCenter: parent.verticalCenter
-            value: Math.round(live.speed)
+            value: Math.round(live.speedShown)
             unit: "KM/H"
             caption: "SPEED"
         }
@@ -980,15 +1696,10 @@ Window {
         Readout {
             x: screen.w * 0.78 - width / 2
             anchors.verticalCenter: parent.verticalCenter
-            // Backend power is watts; shown as kW, so the readout stays a
-            // single digit instead of a four-digit number.
-            //
-            // floor, not round: rounding ticks over at the halfway point, so
-            // the readout would read 2 while the light was still climbing
-            // between the 1 and 2 marks. Truncating makes it change exactly as
-            // the light arrives.
-            value: Math.floor(live.power / 1000)
-            unit: "KW"
+            // Watts, shown as watts. It used to divide by 1000 for a single
+            // kW digit, which on a 450W motor meant a readout permanently at 0.
+            value: Math.round(live.powerShown)
+            unit: "W"
             caption: "POWER"
         }
     }
