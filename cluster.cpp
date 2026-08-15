@@ -262,6 +262,7 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     accumulateDisplay(rpmRaw * KMH_PER_RPM, pInstant, dt);
 
     evaluateWarnings();
+    evaluateHealth();
 }
 
 void VehicleBackend::onAiResults(AiResults results)
@@ -290,6 +291,25 @@ void VehicleBackend::onAiResults(AiResults results)
 
     m_aiAlert = !benign(m_ai.anomaly) || !benign(m_ai.faultClass);
     emit aiChanged();
+    evaluateHealth();
+}
+
+/* Recomputed whenever any of its inputs move -- vibration, current, or the
+ * model's verdict. */
+void VehicleBackend::evaluateHealth()
+{
+    const float vibFrac = qnx_clamp(std::abs(m_vibTotal - 1.f) / VIB_CRIT_G, 0.f, 1.f);
+    const float curFrac = qnx_clamp(m_currentRms / (CURRENT_WARN_A * 1.5f), 0.f, 1.f);
+
+    float h = 1.f - std::max(vibFrac, curFrac);
+    if (m_aiAlert)
+        h = std::min(h, AI_ALERT_HEALTH);
+    h = qnx_clamp(h, 0.f, 1.f);
+
+    if (h != m_health) {
+        m_health = h;
+        emit healthChanged();
+    }
 }
 
 void VehicleBackend::evaluateWarnings()

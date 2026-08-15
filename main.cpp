@@ -1,6 +1,9 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickWindow>
+#include <QTimer>
+#include <QImage>
 #include "cluster.h"
 
 int main(int argc, char *argv[])
@@ -31,6 +34,34 @@ int main(int argc, char *argv[])
     engine.load(url);
     if (engine.rootObjects().isEmpty())
         return -1;
+
+    /* CLUSTER_SHOT=/path/out.png grabs the window and exits.
+     *
+     * Not a debug leftover -- it is the only way to see what this actually
+     * renders on a Wayland session, where both X11 root capture and the
+     * compositor's own screenshot interface are blocked. Everything else has to
+     * be judged from a redrawing of the geometry, which cannot catch an element
+     * that fails to draw at all: the two band icons loaded fine, reported the
+     * right size and position, and were invisible.
+     *
+     * CLUSTER_SHOT_MS delays the grab, for animations that need to settle. */
+    if (qEnvironmentVariableIsSet("CLUSTER_SHOT")) {
+        const QString path = qEnvironmentVariable("CLUSTER_SHOT");
+        bool msOk = false;
+        const int ms = qEnvironmentVariable("CLUSTER_SHOT_MS").toInt(&msOk);
+        auto *win = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        if (win) {
+            QTimer::singleShot(msOk ? ms : 1200, win, [win, path]() {
+                const QImage shot = win->grabWindow();
+                if (shot.isNull() || !shot.save(path))
+                    qWarning("CLUSTER_SHOT: could not write %s", qPrintable(path));
+                else
+                    qInfo("CLUSTER_SHOT: wrote %s (%dx%d)",
+                          qPrintable(path), shot.width(), shot.height());
+                qApp->quit();
+            });
+        }
+    }
 
     return app.exec();
 }

@@ -67,6 +67,9 @@ class VehicleBackend : public QObject
     Q_PROPERTY(float speedMax        READ speedMax        CONSTANT)
     Q_PROPERTY(float powerMax        READ powerMax        CONSTANT)
 
+    /* 0..1. What the right-hand band shows. */
+    Q_PROPERTY(float health          READ health          NOTIFY healthChanged)
+
     Q_PROPERTY(float vibX            READ vibX            NOTIFY vibChanged)
     Q_PROPERTY(float vibY            READ vibY            NOTIFY vibChanged)
     Q_PROPERTY(float vibZ            READ vibZ            NOTIFY vibChanged)
@@ -212,6 +215,28 @@ public:
     static constexpr float SPEED_WARN_RPM   = RPM_MAX * 0.95f;
     static constexpr float VIB_WARN_G       = 2.f;
     static constexpr float VIB_CRIT_G       = 4.f;
+    /* ---- health -------------------------------------------------------------
+     * The right-hand band. Not a sensor reading -- there is no health sensor --
+     * but not invented either: it is the remaining margin to whichever measured
+     * limit is closest, which is what "how is it doing" actually means here.
+     *
+     *     health = 1 - max(vibration/critical, current/critical)
+     *
+     * Worst-of rather than a weighted blend, so no arbitrary weights decide
+     * which fault matters more, and the band answers one question: how much
+     * headroom is left before something trips.
+     *
+     * A model alert caps it instead of subtracting from it. The verdict is a
+     * yes or no with no severity attached, so it cannot be scaled into the
+     * margin -- what it can do is say the margin is not the whole story.
+     *
+     * Temperature is absent because nothing measures it. When a thermistor
+     * exists, it belongs in the max() alongside the other two.
+     *
+     * Motor temperature used to drive this band, which read 0 forever on
+     * hardware for the same reason.                                          */
+    static constexpr float AI_ALERT_HEALTH  = 0.35f;
+
     /* 450W at a ~24V pack is about 19A. Rated current is what this should be
      * set from once the pack voltage is known -- the bus voltage is measured
      * on channel 6, so it could be derived instead of assumed. */
@@ -228,6 +253,8 @@ public:
     float throttle()      const { return m_throttle; }
     float speedMax()      const { return SPEED_MAX_KMH; }
     float powerMax()      const { return POWER_MAX_W; }
+
+    float health()        const { return m_health; }
 
     float vibX()          const { return m_vibX; }
     float vibY()          const { return m_vibY; }
@@ -260,6 +287,7 @@ signals:
     void electricalChanged();
     void vibChanged();
     void aiChanged();
+    void healthChanged();
 
     void speedWarningChanged();
     void vibWarningChanged();
@@ -268,6 +296,7 @@ signals:
 
 private:
     void evaluateWarnings();
+    void evaluateHealth();
     float dtFrom(quint64 timestampUs);
     float medianRpm(float sample);
     void accumulateDisplay(float speedKmh, float powerW, float dt);
@@ -293,6 +322,7 @@ private:
     float m_currentRms  = 0.f;
     float m_busVoltage  = 0.f;
     float m_throttle    = 0.f;   /* 0..1, from the speed command channel */
+    float m_health      = 1.f;   /* 0..1, margin to the nearest limit */
     float m_vibX        = 0.f;
     float m_vibY        = 0.f;
     float m_vibZ        = 0.f;

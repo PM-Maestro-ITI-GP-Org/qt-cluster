@@ -755,19 +755,18 @@ Window {
     // backend behind it either way, VehicleBackend has no odometer at all.
     readonly property real soc: demoMode ? root.demoLevel * 100 : Vehicle.battery
 
-    // Motor temperature, in degrees C. VehicleBackend::temp() is another of the
-    // hardcoded zeros — there is no thermistor on the v4 wire — so on hardware
-    // this bar sits empty until one is added and cluster.h stops returning 0.
+    // What the right-hand band shows: 1 is full margin to every measured limit,
+    // 0 is at one of them. VehicleBackend::health composes it; see the note
+    // there for why it is a worst-of rather than a blend.
     //
-    // The demo runs it against demoLevel, inverted, so the two bands are never
-    // at the same fill and every combination shows up — including a full charge
-    // beside a cold motor and an empty one beside an overheating one, which is
-    // what exercises the colour ramp below. Tying it to speed instead was more
-    // honest physically but only ever swept the middle of the scale.
-    readonly property real tempC: demoMode ? (1 - root.demoLevel) * root.tempMax : Vehicle.temp
-    // Full scale. Nothing behind it yet either — pick the real one off the
-    // motor's derating curve when there is a sensor to read.
-    readonly property real tempMax: 120
+    // The demo runs it inverted against demoLevel so the two bands are never at
+    // the same fill and every combination shows up — full charge beside a
+    // healthy motor, empty beside a failing one — which is what exercises the
+    // colour ramp at both ends.
+    //
+    // This band used to show motor temperature. Nothing measures temperature on
+    // the v4 wire, so on hardware it read 0 and never moved.
+    readonly property real healthFrac: demoMode ? 1 - root.demoLevel : Vehicle.health
 
     // The SOC and KM TOTAL readouts that used to sit at bottomRowY are gone; the
     // status bands carry charge now, and there was never an odometer to read.
@@ -836,8 +835,10 @@ Window {
     readonly property var statusSegCX: [0.15431, 0.17643, 0.19471, 0.21008, 0.22362, 0.23580, 0.24675, 0.25658, 0.26519, 0.27248, 0.27864]
     readonly property var statusSegCY: [0.76449, 0.80861, 0.83227, 0.84249, 0.84737, 0.85050, 0.85279, 0.85504, 0.85660, 0.85660, 0.85660]
     readonly property var statusSegW: [0.01332, 0.01243, 0.01154, 0.01065, 0.00976, 0.00888, 0.00799, 0.00710, 0.00621, 0.00533, 0.00444]
-    readonly property real statusIconSize: 0.028   // fraction of artUnitH
-    readonly property real statusIconGap: 0.022    // fraction of artW, past the inner tip
+    // 0.040, not the 0.028 it started at. At 15px the symbols read as specks
+    // and the bands looked unlabelled.
+    readonly property real statusIconSize: 0.040   // fraction of artUnitH
+    readonly property real statusIconGap: 0.026    // fraction of artW, past the inner tip
 
     // The unlit bars, and what ties the pair to the gauge. Not a grey: a dim
     // ringColor, so the whole band sits in the same family as the neon beside it
@@ -993,20 +994,23 @@ Window {
         side: -1
         fraction: root.soc / 100
         fillColor: root.accent
-        icon: "qrc:/images/images/voltage.svg"
+        icon: "qrc:/images/images/icon_battery.svg"
     }
 
+    // Health, not temperature. The band used to show motor temperature, which
+    // has no sensor and so read 0 forever on hardware; VehicleBackend::health
+    // is the margin to whichever measured limit is closest. Full is good.
     StatusBar {
         side: 1
-        fraction: root.tempC / root.tempMax
-        icon: "qrc:/images/images/temp.svg"
-        // Warms toward the fault red as it climbs, so the bar carries the
-        // reading twice — length and colour — and a glance catches it without
-        // reading the scale. Nothing else on the panel is warm, so this is the
-        // one place the colour is free to mean heat.
+        fraction: root.healthFrac
+        icon: "qrc:/images/images/icon_health.svg"
+        // Reddens as the margin runs out, so the band carries the reading twice
+        // — length and colour — and a glance catches it without counting bars.
+        // Inverted against the charge band next to it: there, empty is the bad
+        // end; here, empty IS the reading being bad.
         fillColor: Qt.tint(root.accent,
                            Qt.rgba(root.faultColor.r, root.faultColor.g, root.faultColor.b,
-                                   Math.max(0, Math.min(1, (root.tempC / root.tempMax - 0.5) * 2))))
+                                   Math.max(0, Math.min(1, (0.5 - root.healthFrac) * 2))))
     }
 
     // --- Telltales -----------------------------------------------------------
