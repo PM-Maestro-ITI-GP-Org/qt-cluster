@@ -7,53 +7,65 @@
 #include <QVariant>
 #include <qqml.h>
 #include "SpiReader.h"    /* MotorSnapshot */
+#include "AiReader.h"     /* AiResults     */
 
-/* VehicleBackend: presents the motor sensor snapshot as QML properties.
+/* VehicleBackend: turns the two shared-memory feeds into QML properties.
  *
- * Sensor set (matches motor_wire.h v4):
- *   - 8 ADC channels (PA0..PA7, raw counts) -> currents[] + currentMean/currentMax
- *     (currentPhaseA/B/C kept as aliases for channels 0/1/2)
- *   - 3-axis vibration (MPU6050, ±2g, raw counts) -> vibX/Y/Z + vibTotal (g)
- *   - rpm (from tach input capture) -> rpm + speed (rpm alias for QML naming)
+ *   /motor_ctrl        motor-data-producer, via SpiReader. Sensor rows.
+ *   /motor_ai_result   motor_ai_client, via AiReader. Model verdicts.
  *
- * Legacy properties still declared for QML compatibility (temp, voltage,
- * battery, power, and the temp/voltage warning flags) -- they stay at 0/false
- * since our v4 hardware doesn't measure them. If you're editing the QML, drop
- * the widgets for those; otherwise they'll show as zero/inactive. */
+ * ---------------------------------------------------------------------------
+ * What the eight ADC channels actually are
+ *
+ * motor_wire.h calls the array `current[8]` and says only "eight ADC1 channels,
+ * PA0..PA7 (scan order)". They are NOT eight currents. motor_ai_client's
+ * interface/MotorDataService.fidl names them, and MotorDataClient.cpp maps them
+ * index by index:
+ *
+ *     [0] currentA      [3] voltageA        [6] voltageDcBus
+ *     [1] currentB      [4] voltageB        [7] voltageSpeed
+ *     [2] currentC      [5] voltageC
+ *
+ * The previous version of this file scaled all eight as currents and averaged
+ * them, so `currentMean` was three phase currents averaged with five voltages
+ * and meant nothing. Anything reading the old currents[] array wants checking.
+ *
+ * This matters most for power: with phase voltages measured as well as phase
+ * currents, real power is a direct product of the two and needs no assumed bus
+ * voltage or power factor.
+ * ------------------------------------------------------------------------- */
 class VehicleBackend : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
 
-    /* Real sensor properties. */
-    Q_PROPERTY(float rpm             READ rpm             NOTIFY rpmChanged)
-    Q_PROPERTY(float speed           READ speed           NOTIFY speedChanged)   /* == rpm, or scaled by wheel */
+    /* --- the two the cluster displays ------------------------------------ */
+    Q_PROPERTY(float speed           READ speed           NOTIFY speedChanged)   /* km/h, filtered */
+    Q_PROPERTY(float power           READ power           NOTIFY powerChanged)   /* watts, filtered, signed */
+    Q_PROPERTY(float rpm             READ rpm             NOTIFY rpmChanged)     /* filtered, pre-conversion */
 
-    Q_PROPERTY(QVariantList currents READ currents       NOTIFY currentsChanged) /* 8 scaled amps */
-    Q_PROPERTY(float currentPhaseA   READ currentPhaseA   NOTIFY currentsChanged) /* == currents[0] */
-    Q_PROPERTY(float currentPhaseB   READ currentPhaseB   NOTIFY currentsChanged) /* == currents[1] */
-    Q_PROPERTY(float currentPhaseC   READ currentPhaseC   NOTIFY currentsChanged) /* == currents[2] */
-    Q_PROPERTY(float currentMean     READ currentMean     NOTIFY currentsChanged)
-    Q_PROPERTY(float currentMax      READ currentMax      NOTIFY currentsChanged) /* max |channel| */
+    /* --- derived electricals, not displayed but useful to bind ----------- */
+    Q_PROPERTY(float currentRms      READ currentRms      NOTIFY electricalChanged)
+    Q_PROPERTY(float busVoltage      READ busVoltage      NOTIFY electricalChanged)
 
     Q_PROPERTY(float vibX            READ vibX            NOTIFY vibChanged)
     Q_PROPERTY(float vibY            READ vibY            NOTIFY vibChanged)
     Q_PROPERTY(float vibZ            READ vibZ            NOTIFY vibChanged)
     Q_PROPERTY(float vibTotal        READ vibTotal        NOTIFY vibChanged)
 
-    /* Legacy properties kept so existing QML doesn't need to change.
-     * They read as 0 since we don't measure them.                       */
-    Q_PROPERTY(float temp            READ temp            NOTIFY tempChanged)
-    Q_PROPERTY(float voltage         READ voltage         NOTIFY voltageChanged)
-    Q_PROPERTY(float battery         READ battery         NOTIFY batteryChanged)
-    Q_PROPERTY(float power           READ power           NOTIFY powerChanged)
-    Q_PROPERTY(float current         READ current         NOTIFY currentsChanged) /* == currentMean */
+    /* --- AI verdicts ------------------------------------------------------ */
+    Q_PROPERTY(QString aiAnomaly     READ aiAnomaly       NOTIFY aiChanged)
+    Q_PROPERTY(QString aiFaultClass  READ aiFaultClass    NOTIFY aiChanged)
+    Q_PROPERTY(QString aiPredMaint   READ aiPredMaint     NOTIFY aiChanged)
+    Q_PROPERTY(bool aiAlert          READ aiAlert         NOTIFY aiChanged)
+    Q_PROPERTY(bool aiConnected      READ aiConnected     NOTIFY aiChanged)
 
-    /* Legacy warning flags referenced by Main.qml; no v4 source, always false. */
-    Q_PROPERTY(bool tempWarning      READ tempWarning     NOTIFY tempWarningChanged)
-    Q_PROPERTY(bool voltageWarning   READ voltageWarning  NOTIFY voltageWarningChanged)
+    /* --- still unmeasured. No sensor exists for either on the v4 wire, so
+     * both read 0 and the widgets bound to them sit empty on hardware.     */
+    Q_PROPERTY(float temp            READ temp            CONSTANT)
+    Q_PROPERTY(float battery         READ battery         CONSTANT)
 
-    /* Warnings. */
+    /* --- warnings --------------------------------------------------------- */
     Q_PROPERTY(bool speedWarning     READ speedWarning    NOTIFY speedWarningChanged)
     Q_PROPERTY(bool vibWarning       READ vibWarning      NOTIFY vibWarningChanged)
     Q_PROPERTY(bool currentWarning   READ currentWarning  NOTIFY currentWarningChanged)
@@ -63,44 +75,82 @@ public:
     explicit VehicleBackend(QObject *parent = nullptr);
     ~VehicleBackend();
 
-    /* Thresholds -- tune to your motor / test rig. */
-    static constexpr float SPEED_WARN     = 3000.f;   /* RPM                    */
-    static constexpr float SPEED_CRIT     = 5000.f;
-    static constexpr float VIB_WARN_G     = 2.f;      /* total g magnitude      */
-    static constexpr float VIB_CRIT_G     = 4.f;
-    static constexpr float CURRENT_WARN_A = 50.f;     /* amps, after scaling    */
+    /* ---- channel map, from MotorDataService.fidl ------------------------- */
+    enum Channel {
+        CurrentA = 0, CurrentB = 1, CurrentC = 2,
+        VoltageA = 3, VoltageB = 4, VoltageC = 5,
+        VoltageDcBus = 6, VoltageSpeed = 7,
+    };
 
-    /* Raw MPU6050 sensitivity at ±2g: 16384 counts per g. */
+    /* ---- ADC scaling ------------------------------------------------------
+     * CALIBRATE THESE. The producer carries current_scale/rpm_scale in its
+     * config.json but does not put them in shm, and they all ship at 1.0, so
+     * what arrives here is raw counts and the conversion has to live here.
+     *
+     * 12-bit ADC on a 3.3V reference. Currents are bipolar through a sense amp
+     * with mid-rail zero; voltages come off a divider and are unipolar.       */
+    static constexpr float ADC_MIDSCALE     = 2048.f;
+    static constexpr float AMPS_PER_COUNT   = 0.05f;   /* 100 A full scale     */
+    static constexpr float VOLTS_PER_COUNT  = 0.1f;    /* ~410 V full scale    */
+
+    /* rpm -> km/h. rpm is already RPM (timer input capture, rpm_scale 1.0).
+     * Wheel circumference in metres over the reduction between motor and
+     * wheel; both are rig properties, not measurements.                       */
+    static constexpr float WHEEL_CIRCUM_M   = 1.90f;
+    static constexpr float GEAR_RATIO       = 8.0f;
+    static constexpr float KMH_PER_RPM      = WHEEL_CIRCUM_M * 60.f / 1000.f / GEAR_RATIO;
+
+    /* ---- filtering --------------------------------------------------------
+     * Time constants in seconds, applied as a one-pole low pass against the
+     * wire's own timestamps rather than a fixed rate, so a stalled or bursty
+     * producer does not change how much smoothing happens.
+     *
+     * Power gets the longer one: it is a product of two noisy channels, so its
+     * noise is roughly the sum of both in relative terms.                     */
+    static constexpr float TAU_SPEED_S      = 0.25f;
+    static constexpr float TAU_POWER_S      = 0.40f;
+
+    /* Below these, the reading is snapped to zero. Without it a standstill
+     * shows a wandering last digit, which reads as a fault in the sensor.    */
+    static constexpr float SPEED_DEADBAND   = 0.5f;    /* km/h */
+    static constexpr float POWER_DEADBAND   = 20.f;    /* W    */
+
+    /* Guard against a stalled or restarted producer: a dt outside this is not
+     * used to advance the filters. */
+    static constexpr float DT_MIN_S         = 1e-4f;
+    static constexpr float DT_MAX_S         = 0.5f;
+
+    static constexpr int   RPM_MEDIAN_N     = 5;       /* tach glitch rejection */
+
+    /* Raw MPU6050 sensitivity at +/-2g. */
     static constexpr float MPU_COUNTS_PER_G = 16384.f;
 
-    /* Current sensor scaling -- adjust for your INA199 / shunt combo.
-     * Assumes bipolar current sense with 3.3V ADC and mid-rail zero. */
-    static constexpr float ADC_MIDSCALE   = 2048.f;
-    static constexpr float AMPS_PER_COUNT = 0.05f;    /* 100 A full-scale -> 0.05 A / count */
+    /* ---- thresholds -- tune to the rig ----------------------------------- */
+    static constexpr float SPEED_WARN_RPM   = 3000.f;
+    static constexpr float SPEED_CRIT_RPM   = 5000.f;
+    static constexpr float VIB_WARN_G       = 2.f;
+    static constexpr float VIB_CRIT_G       = 4.f;
+    static constexpr float CURRENT_WARN_A   = 50.f;
 
+    float speed()         const { return m_speedKmh; }
+    float power()         const { return m_powerW; }
     float rpm()           const { return m_rpm; }
-    float speed()         const { return m_rpm; }
-
-    QVariantList  currents()    const { return m_currents; }
-    float currentPhaseA() const { return m_currents.size() > 0 ? m_currents[0].toFloat() : 0.f; }
-    float currentPhaseB() const { return m_currents.size() > 1 ? m_currents[1].toFloat() : 0.f; }
-    float currentPhaseC() const { return m_currents.size() > 2 ? m_currents[2].toFloat() : 0.f; }
-    float currentMean()   const { return m_currentMean; }
-    float currentMax()    const { return m_currentMax; }
-    float current()       const { return m_currentMean; }
+    float currentRms()    const { return m_currentRms; }
+    float busVoltage()    const { return m_busVoltage; }
 
     float vibX()          const { return m_vibX; }
     float vibY()          const { return m_vibY; }
     float vibZ()          const { return m_vibZ; }
     float vibTotal()      const { return m_vibTotal; }
 
-    /* legacy no-signal fields */
+    QString aiAnomaly()    const { return m_ai.anomaly; }
+    QString aiFaultClass() const { return m_ai.faultClass; }
+    QString aiPredMaint()  const { return m_ai.predMaint; }
+    bool    aiAlert()      const { return m_aiAlert; }
+    bool    aiConnected()  const { return m_aiConnected; }
+
     float temp()          const { return 0.f; }
-    float voltage()       const { return 0.f; }
     float battery()       const { return 0.f; }
-    float power()         const { return 0.f; }
-    bool  tempWarning()   const { return false; }
-    bool  voltageWarning() const { return false; }
 
     bool speedWarning()   const { return m_speedWarning; }
     bool vibWarning()     const { return m_vibWarning; }
@@ -109,18 +159,15 @@ public:
 
 public slots:
     void onSpiData(MotorSnapshot snap);
+    void onAiResults(AiResults results);
 
 signals:
-    void rpmChanged();
     void speedChanged();
-    void currentsChanged();
-    void vibChanged();
-    void tempChanged();
-    void voltageChanged();
-    void batteryChanged();
     void powerChanged();
-    void tempWarningChanged();
-    void voltageWarningChanged();
+    void rpmChanged();
+    void electricalChanged();
+    void vibChanged();
+    void aiChanged();
 
     void speedWarningChanged();
     void vibWarningChanged();
@@ -129,17 +176,32 @@ signals:
 
 private:
     void evaluateWarnings();
+    float dtFrom(quint64 timestampUs);
+    float medianRpm(float sample);
 
     SpiReader *m_spiReader = nullptr;
+    AiReader  *m_aiReader  = nullptr;
 
-    float m_rpm         = 0.f;
-    QVariantList m_currents;          /* 8 scaled channel currents (amps) */
-    float m_currentMean = 0.f;
-    float m_currentMax  = 0.f;        /* max |channel|, drives current warning */
+    float m_rpm         = 0.f;   /* filter state */
+    float m_speedKmh    = 0.f;   /* published, deadbanded */
+    float m_powerFiltered = 0.f; /* filter state */
+    float m_powerW      = 0.f;   /* published, deadbanded */
+    bool  m_primed      = false; /* first snapshot seen */
+    float m_currentRms  = 0.f;
+    float m_busVoltage  = 0.f;
     float m_vibX        = 0.f;
     float m_vibY        = 0.f;
     float m_vibZ        = 0.f;
     float m_vibTotal    = 0.f;
+
+    quint64 m_lastTimestamp = 0;
+    float   m_rpmWindow[RPM_MEDIAN_N] = {0};
+    int     m_rpmWindowCount = 0;
+    int     m_rpmWindowPos = 0;
+
+    AiResults m_ai;
+    bool m_aiAlert     = false;
+    bool m_aiConnected = false;
 
     bool m_speedWarning   = false;
     bool m_vibWarning     = false;

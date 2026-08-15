@@ -987,6 +987,7 @@ Window {
     readonly property bool faultMode: root.faultEngine || root.faultBattery
                                       || root.faultAbs || root.faultSeatbelt
                                       || Vehicle.criticalAlert
+                                      || Vehicle.aiAlert
 
     component Telltale: Item {
         id: lamp
@@ -1189,6 +1190,13 @@ Window {
             return { kind: "ELECTRICAL", code: "E-21" };
         if (root.faultBattery)
             return { kind: "ELECTRICAL", code: "E-20" };
+        // The model flagged something no measured signal did. Last, so a
+        // reading the cluster can name outranks one it cannot, and with an
+        // empty kind on purpose: that suppresses the motor lamp and its
+        // symbol, which would otherwise accuse the drive unit of a fault the
+        // verdict never located. Fault mode still engages and the code shows.
+        if (Vehicle.aiAlert)
+            return { kind: "", code: "E-90" };
         return { kind: "", code: "" };
     }
     readonly property string errorKind: root.errorFault.kind
@@ -1287,6 +1295,41 @@ Window {
         smooth: true
         mipmap: true
         visible: root.errorIcon !== "" && carTop.visible
+    }
+
+    // --- AI verdict -----------------------------------------------------------
+    // What the model actually said, in the strip above the clock the now-playing
+    // row used to occupy. The error code below can only say that something is
+    // wrong; this is the only place the reason appears.
+    //
+    // The fault class is preferred over the anomaly verdict: an anomaly result
+    // says a window looked unusual, a class says what it looked like. Falls back
+    // to the anomaly text when there is no class.
+    //
+    // Steady, not blinking. It is a sentence to read, and the code beside the
+    // car is already doing the attention-getting.
+    readonly property string aiVerdict: {
+        if (!Vehicle.aiAlert)
+            return "";
+        const cls = Vehicle.aiFaultClass.trim();
+        return cls !== "" ? cls : Vehicle.aiAnomaly.trim();
+    }
+
+    Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: root.artY + root.artH * root.trackY - height / 2
+        // Capped like the track title was, so a long verdict elides rather than
+        // running out under the telltales in the corners.
+        width: Math.min(implicitWidth, root.artW * 0.34)
+        elide: Text.ElideRight
+        text: root.aiVerdict
+        color: root.faultColor
+        opacity: 0.9
+        font.pixelSize: root.artUnitH * 0.030
+        font.family: "Century Gothic"
+        font.weight: Font.Light
+        font.letterSpacing: 1
+        visible: root.aiVerdict !== ""
     }
 
     // --- Error code ----------------------------------------------------------

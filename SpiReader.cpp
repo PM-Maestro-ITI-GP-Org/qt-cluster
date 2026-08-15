@@ -2,7 +2,7 @@
 
 /* --- Shared-memory contract -------------------------------------------
  *
- * The real layout lives in giga_spi/motor_shm.h (shm_region_t /
+ * The real layout lives in motor-data-producer's motor_shm.h (shm_region_t /
  * shm_snapshot_t), but that header uses C11 _Atomic / <stdatomic.h>. On
  * this toolchain <stdatomic.h>'s C++ compat shim only activates for C++23
  * (see .../usr/include/c++/12.2.0/stdatomic.h: "#if __cplusplus > 202002L"),
@@ -16,18 +16,20 @@
  * mirror the region header + snapshot and mmap just that prefix.
  *
  * MOTOR_SHM_NAME and the cache-line size below MUST stay in sync with
- * giga_spi/motor_shm.h if that file changes.
+ * motor-data-producer's motor_shm.h if that file changes; the static_asserts
+ * after the structs are what catch it if they do not.
  * -------------------------------------------------------------------- */
 #define _Static_assert static_assert   /* motor_wire.h uses C11 _Static_assert */
 #include "motor_wire.h"                 /* motor_row_t -- pure data layout, no atomics.
                                          * Vendored copy of the authoritative header from
-                                         * the producer tree (giga_spi_8adc/motor_wire.h);
+                                         * the producer tree (motor-data-producer/motor_wire.h);
                                          * keep in sync -- ideally a git submodule.       */
 #undef _Static_assert
 
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <cstddef>
 #include <cstring>
 #include <climits>
 #include <atomic>
@@ -57,6 +59,25 @@ struct ShmRegionHeader {
     alignas(kMotorCacheline) MotorSnapshotShm snapshot;
 };
 
+/* Checked against motor_shm.h compiled as C11 -- every offset below was read
+ * off the real shm_region_t, not derived from this one. The mirror is only the
+ * prefix; the real region continues into the block ring at 128 and runs to
+ * 103616 bytes, which is why the sizeof check is against the prefix and the
+ * mmap length is sizeof(ShmRegionHeader).
+ *
+ * A drift here means reading a field out of the middle of another one, so it
+ * fails the build rather than the run. */
+static_assert(sizeof(ShmRegionHeader) == 128, "prefix size drifted from shm_region_t");
+static_assert(offsetof(ShmRegionHeader, magic) == 0, "magic moved");
+static_assert(offsetof(ShmRegionHeader, version) == 4, "version moved");
+static_assert(offsetof(ShmRegionHeader, row_size) == 8, "row_size moved");
+static_assert(offsetof(ShmRegionHeader, reserved) == 12, "reserved moved");
+static_assert(offsetof(ShmRegionHeader, snapshot) == 64, "snapshot moved");
+static_assert(offsetof(ShmRegionHeader, snapshot.producer_seq) == 68, "producer_seq moved");
+static_assert(offsetof(ShmRegionHeader, snapshot.timestamp) == 72, "timestamp moved");
+static_assert(offsetof(ShmRegionHeader, snapshot.flags) == 80, "flags moved");
+static_assert(offsetof(ShmRegionHeader, snapshot.row) == 84, "row moved");
+
 } // namespace
 
 SpiReader::SpiReader(QObject *parent) : QThread(parent)
@@ -81,7 +102,7 @@ static void copy_snapshot(const MotorSnapshotShm *src, MotorSnapshot *dst)
 
 void SpiReader::run()
 {
-    /* Retry shm_open for up to 5s in case motor_controller is starting
+    /* Retry shm_open for up to 5s in case motor_data_producer is starting
      * slightly after us.                                                 */
     int fd = -1;
     for (int attempt = 0; attempt < 20 && m_running; ++attempt) {
@@ -90,7 +111,7 @@ void SpiReader::run()
         usleep(250000);
     }
     if (fd == -1) {
-        qWarning("SpiReader: shm_open(%s) failed -- is motor_controller running?",
+        qWarning("SpiReader: shm_open(%s) failed -- is motor_data_producer running?",
                  kMotorShmName);
         return;
     }
