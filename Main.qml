@@ -851,6 +851,50 @@ Window {
     // edge lands right against their cuts. Colour does the job; light does not.
     readonly property color statusIdleColor: root.ringColor
     readonly property real statusIdleOpacity: 0.20
+    readonly property int statusFadeMs: 260
+
+    // --- Health colour ramp ---------------------------------------------------
+    // Full health is `accent` — the same cyan the charge band opposite is drawn
+    // in, so a healthy pair reads as one instrument rather than two. It cools
+    // toward that cyan through the top half, turns red below the midpoint, and
+    // goes dark as it approaches nothing.
+    //
+    // Four stops rather than a single blend, because the interesting behaviour
+    // is not linear: nothing should happen in the top half beyond the colour
+    // coming up to full, and everything happens in the bottom half.
+    //
+    // Interpolated in RGB, not HSV. Hue interpolation from cyan to red takes
+    // the long way round through green and yellow, which would run a rainbow up
+    // the band on the way to a warning.
+    //
+    // The dark end is the point of the last stop: at zero margin the band goes
+    // near-black red rather than bright red. A bright bar reads as a bar that
+    // is *on*; the reading here is that almost nothing is left.
+    readonly property var healthStops: [
+        { t: 0.00, c: Qt.rgba(0.30, 0.02, 0.02, 1) },
+        { t: 0.30, c: Qt.rgba(0.92, 0.13, 0.13, 1) },
+        { t: 0.50, c: Qt.darker(root.accent, 1.45) },
+        { t: 1.00, c: root.accent }
+    ]
+
+    // Smoothstep inside each segment, so the rate of change goes to zero at
+    // every stop and the ramp has no visible corners where two segments meet.
+    function healthColorAt(v) {
+        const stops = root.healthStops;
+        const t = Math.max(0, Math.min(1, v));
+        for (let i = 0; i < stops.length - 1; ++i) {
+            const a = stops[i], b = stops[i + 1];
+            if (t > b.t && i + 2 < stops.length)
+                continue;
+            const u = b.t > a.t ? (t - a.t) / (b.t - a.t) : 0;
+            const f = Math.max(0, Math.min(1, u));
+            const s = f * f * (3 - 2 * f);
+            return Qt.rgba(a.c.r + (b.c.r - a.c.r) * s,
+                           a.c.g + (b.c.g - a.c.g) * s,
+                           a.c.b + (b.c.b - a.c.b) * s, 1);
+        }
+        return stops[stops.length - 1].c;
+    }
 
     // One mask for both bands — the PNG carries the left and right shapes, and
     // each bar's stripes only exist on its own side, so masking with the shared
@@ -935,6 +979,24 @@ Window {
                     rotation: sb.side < 0 ? root.statusSegAngle : -root.statusSegAngle
                     color: seg.lit ? sb.fillColor : root.statusIdleColor
                     opacity: seg.lit ? 1.0 : root.statusIdleOpacity
+
+                    // Opacity only. `lit` is a discrete flip, so a Behavior
+                    // fades a segment in cleanly.
+                    //
+                    // There is deliberately NO Behavior on color. The health
+                    // ramp moves continuously with the reading, and a Behavior
+                    // restarts on every write -- so it never finishes, and the
+                    // colour stays pinned near wherever it began. It was doing
+                    // exactly that here: the band held its start-up cyan all
+                    // the way down to 14% health while the binding underneath
+                    // was correctly reporting dark red. Same trap the note on
+                    // `live` warns about. The ramp is already smooth because
+                    // its input is.
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: root.statusFadeMs
+                        }
+                    }
                 }
             }
         }
@@ -1004,13 +1066,9 @@ Window {
         side: 1
         fraction: root.healthFrac
         icon: "qrc:/images/images/icon_health.svg"
-        // Reddens as the margin runs out, so the band carries the reading twice
-        // — length and colour — and a glance catches it without counting bars.
-        // Inverted against the charge band next to it: there, empty is the bad
-        // end; here, empty IS the reading being bad.
-        fillColor: Qt.tint(root.accent,
-                           Qt.rgba(root.faultColor.r, root.faultColor.g, root.faultColor.b,
-                                   Math.max(0, Math.min(1, (0.5 - root.healthFrac) * 2))))
+        // Carries the reading twice — length and colour — so a glance catches
+        // it without counting bars. See healthColorAt for the ramp.
+        fillColor: root.healthColorAt(root.healthFrac)
     }
 
     // --- Telltales -----------------------------------------------------------
