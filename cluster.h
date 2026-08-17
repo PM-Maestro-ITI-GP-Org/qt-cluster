@@ -280,12 +280,24 @@ public:
      * Scaled to this motor. The previous 3000/5000 rpm pair was sized for a
      * machine six times faster and could never have fired.
      *
-     * There is no speed CRITICAL any more. Speed is reconstructed from a
-     * command that is clamped to full throttle, so it cannot report an
-     * overspeed -- a runaway shaft would look identical to full throttle. That
-     * needs a tach, not a threshold. What is left warns at near-maximum, which
-     * is a real thing to show.                                                */
-    static constexpr float SPEED_WARN_RPM   = RPM_MAX * 0.95f;
+     * The reasoning behind the old 95% threshold no longer holds, and the
+     * threshold went with it.
+     *
+     * It was set when speed was reconstructed from the throttle command, which
+     * is clamped at full throttle and so could never show an overspeed -- a
+     * runaway shaft looked identical to an open throttle. Warning at
+     * near-maximum was the most that could be said. Speed is now MEASURED off
+     * the block ring, so an overspeed is a thing this can actually detect.
+     *
+     * At 95% the warning fired during ordinary running: the machine settles at
+     * 785 rpm of 790 whenever the throttle is open, so full throttle -- the
+     * normal case -- permanently displayed a fault code. A lamp that is lit
+     * whenever the motor is working is not telling anyone anything.
+     *
+     * Set above the natural maximum instead. The motor cannot reach this under
+     * its own power at full throttle; getting here means it is being driven by
+     * the load or the speed itself is wrong, and both are worth a look.      */
+    static constexpr float SPEED_WARN_RPM   = RPM_MAX * 1.05f;
     /* AC ONLY -- gravity must be removed before these are applied.
      *
      * The old 2g/4g pair could never fire. vibTotal is the magnitude of the
