@@ -1660,28 +1660,44 @@ Window {
 
         // Clock, sitting just below the moulding drawn into the top of the lens
         // artwork so it doesn't collide with it.
-        Text {
+        // Time comes from NetworkClock (SNTP-disciplined, CLUSTER_TZ zone), not
+        // from new Date(). The QML no longer runs a timer of its own: the
+        // backend ticks on the minute boundary and this just binds, so there is
+        // one clock in the process instead of a C++ one and a QML one that
+        // could disagree.
+        Row {
             id: clock
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
             anchors.topMargin: 0
-            color: root.textColor
-            opacity: 0.85
-            font.pixelSize: screen.unitH * 0.09
-            font.family: "Century Gothic"
-            font.weight: Font.Light
-            font.letterSpacing: 2
-            function tick() {
-                text = Qt.formatTime(new Date(), "hh:mm");
-            }
-            Component.onCompleted: tick()
-        }
+            spacing: screen.unitH * 0.022
+            // Dimmed until a time server has actually answered, so an unsynced
+            // guest reads as "time unknown" rather than as a confident wrong
+            // answer. Animated so the step to synced is not a jarring pop.
+            opacity: Clock.synced ? 0.85 : 0.38
+            Behavior on opacity { NumberAnimation { duration: 400 } }
 
-        Timer {
-            interval: 1000
-            running: true
-            repeat: true
-            onTriggered: clock.tick()
+            Text {
+                text: Clock.synced ? Clock.time : "--:--"
+                color: root.textColor
+                font.pixelSize: screen.unitH * 0.09
+                font.family: "Century Gothic"
+                font.weight: Font.Light
+                font.letterSpacing: 2
+            }
+            Text {
+                text: Clock.meridiem
+                color: root.textColor
+                // Smaller and top-aligned against the digits, the way a
+                // meridiem marker is normally set.
+                font.pixelSize: screen.unitH * 0.045
+                font.family: "Century Gothic"
+                font.weight: Font.Light
+                font.letterSpacing: 1
+                anchors.top: parent.top
+                anchors.topMargin: screen.unitH * 0.012
+                visible: Clock.synced
+            }
         }
 
 

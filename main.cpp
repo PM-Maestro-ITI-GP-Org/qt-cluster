@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QImage>
 #include "cluster.h"
+#include "NetworkClock.h"
 
 int main(int argc, char *argv[])
 {
@@ -12,8 +13,14 @@ int main(int argc, char *argv[])
 
     VehicleBackend backend;
 
+    /* Wall-clock time, disciplined over SNTP and rendered in the zone named by
+     * CLUSTER_TZ (default Africa/Cairo). Exposed the same way as Vehicle so the
+     * QML has one convention for backend objects rather than two. */
+    NetworkClock clock;
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("Vehicle", &backend);
+    engine.rootContext()->setContextProperty("Clock", &clock);
 
     /* Desktop demo: with no motor_controller running the SPI reader never
      * produces a frame, so every readout sits at zero and the cluster looks
