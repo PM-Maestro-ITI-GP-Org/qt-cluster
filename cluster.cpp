@@ -167,11 +167,13 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     const float ib = (static_cast<float>(snap.current[CurrentB]) - ADC_MIDSCALE) * AMPS_PER_COUNT;
     const float ic = (static_cast<float>(snap.current[CurrentC]) - ADC_MIDSCALE) * AMPS_PER_COUNT;
 
-    const float va = static_cast<float>(snap.current[VoltageA]) * VOLTS_PER_COUNT;
-    const float vb = static_cast<float>(snap.current[VoltageB]) * VOLTS_PER_COUNT;
-    const float vc = static_cast<float>(snap.current[VoltageC]) * VOLTS_PER_COUNT;
+    /* Paired through PhaseVoltageFor, not index-for-index: the voltage
+     * channels sit one position rotated from the current channels. */
+    const float va = static_cast<float>(snap.current[PhaseVoltageFor[0]]) * VOLTS_PER_COUNT_PHASE;
+    const float vb = static_cast<float>(snap.current[PhaseVoltageFor[1]]) * VOLTS_PER_COUNT_PHASE;
+    const float vc = static_cast<float>(snap.current[PhaseVoltageFor[2]]) * VOLTS_PER_COUNT_PHASE;
 
-    m_busVoltage = static_cast<float>(snap.current[VoltageDcBus]) * VOLTS_PER_COUNT;
+    m_busVoltage = static_cast<float>(snap.current[VoltageDcBus]) * VOLTS_PER_COUNT_BUS;
 
     /* Clarke magnitude: for a balanced set this is the phase amplitude and is
      * steady through the cycle, which a single |i| sample is not. Over root 2
@@ -179,6 +181,31 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     const float iPeak = std::sqrt(2.f / 3.f * (ia * ia + ib * ib + ic * ic));
     m_currentRms = iPeak / 1.41421356f;
 
+    /* The justification above is wrong in its reasoning but survivable in its
+     * conclusion, and it is worth being precise about which.
+     *
+     * "The three-phase sum is steady through the cycle" holds for a balanced
+     * set of SINUSOIDS. These phase voltages are not sinusoids: they are raw
+     * PWM, each sample at either ~130 or ~2071 counts, and the 20kHz row rate
+     * undersamples a carrier smeared across 3-6kHz. Per row the sum is not
+     * steady at all -- at steady full throttle it ranges -20W to +815W.
+     *
+     * What rescues it is the averaging, not the steadiness: the samples are
+     * uncorrelated with the switching, so the 0.4s low pass converges on the
+     * true mean anyway. Measured against the block ring at full throttle:
+     * 523W displayed against 512W actual, rippling +/-22W. Good enough for a
+     * gauge. It only works with the phase pairing and the two voltage scales
+     * corrected -- with the old index-for-index pairing it converged on about
+     * a quarter of the true power.
+     *
+     * SPEED IS DIFFERENT and cannot be rescued this way. The snapshot is one
+     * row in 200, so this path runs at 100Hz while the electrical fundamental
+     * reaches 340Hz. It is aliased past Nyquist -- 340.2Hz folds to 40.2Hz and
+     * cannot be told from a real 40Hz. No filter recovers it. Speed has to be
+     * computed over the whole block: see MotorBlockAnalyzer.h, which is
+     * written and validated but NOT yet wired up, because SpiReader mmaps only
+     * the region header and snapshot prefix and the block ring's layout lives
+     * in motor_shm.h, which is not in this repo. */
     const float pInstant = va * ia + vb * ib + vc * ic;
 
     /* --- speed -------------------------------------------------------------
@@ -234,7 +261,26 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     const float vx = static_cast<float>(snap.vib_x) / MPU_COUNTS_PER_G;
     const float vy = static_cast<float>(snap.vib_y) / MPU_COUNTS_PER_G;
     const float vz = static_cast<float>(snap.vib_z) / MPU_COUNTS_PER_G;
-    const float vTotal = std::sqrt(vx * vx + vy * vy + vz * vz);
+    /* Gravity removed before the magnitude, which is what makes the warning
+     * thresholds reachable at all. The raw vector is dominated by a constant
+     * 1g (measured 0.968g, almost all of it on Z), so |v| sat at ~0.97g at
+     * every speed and the old 2g/4g thresholds could never fire. Real AC
+     * vibration on this rig runs 0.010g at standstill to 0.100g under load.
+     *
+     * The DC estimate is a slow one-pole rather than a fixed 1g subtraction:
+     * it tracks whatever orientation the IMU is actually mounted at, so the
+     * rig can be remounted without recalibrating. TAU_GRAVITY_S is far longer
+     * than any vibration period and far shorter than a session. */
+    const float aG = (dt > 0.f) ? dt / (TAU_GRAVITY_S + dt) : 0.f;
+    if (!m_gravityPrimed) {
+        m_gX = vx; m_gY = vy; m_gZ = vz; m_gravityPrimed = true;
+    } else if (aG > 0.f) {
+        m_gX += (vx - m_gX) * aG;
+        m_gY += (vy - m_gY) * aG;
+        m_gZ += (vz - m_gZ) * aG;
+    }
+    const float ax = vx - m_gX, ay = vy - m_gY, az = vz - m_gZ;
+    const float vTotal = std::sqrt(ax * ax + ay * ay + az * az);
 
     if (vx != m_vibX || vy != m_vibY || vz != m_vibZ) {
         m_vibX = vx; m_vibY = vy; m_vibZ = vz;

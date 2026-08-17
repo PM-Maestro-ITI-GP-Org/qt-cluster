@@ -98,11 +98,39 @@ public:
     ~VehicleBackend();
 
     /* ---- channel map, from MotorDataService.fidl ------------------------- */
+    /* CONFLICT, RESOLVED FROM THE DATA -- read this before trusting either.
+     *
+     * The map below used to read VoltageA=3, VoltageB=4, VoltageC=5,
+     * VoltageDcBus=6, VoltageSpeed=7, attributed to MotorDataService.fidl.
+     * A 728800-row bench capture disagrees, and the raw signals settle it:
+     *
+     *   ch3  smooth, 1056 counts closed to 4095 full, no switching content
+     *        -> the speed/throttle channel, NOT phase A
+     *   ch4..6  bimodal 130/2071 counts, switching, 120 deg apart, fundamental
+     *        at the electrical frequency -> the three phase voltages
+     *   ch7  2633 counts, std 11, immovable under load -> the DC bus
+     *
+     * So the fidl-derived map had the speed channel and the bus swapped in and
+     * shifted the three phase voltages by one. With the old map the cluster
+     * read the throttle as phase A and the bus as the throttle.
+     *
+     * Confirm against the STM32's actual ADC1 scan order (PA0..PA7) before
+     * shipping -- one of the two sources is stale and it is worth knowing
+     * which. */
     enum Channel {
         CurrentA = 0, CurrentB = 1, CurrentC = 2,
-        VoltageA = 3, VoltageB = 4, VoltageC = 5,
-        VoltageDcBus = 6, VoltageSpeed = 7,
+        VoltageSpeed = 3,
+        VoltageA = 4, VoltageB = 5, VoltageC = 6,
+        VoltageDcBus = 7,
     };
+
+    /* Phase-voltage channels are rotated one position relative to the current
+     * channels: VoltageB pairs with CurrentA, VoltageC with CurrentB,
+     * VoltageA with CurrentC. Pairing them index-for-index puts the current
+     * 80 deg out from its own phase voltage and drops the apparent power
+     * factor to 0.16; with this rotation it is 0.77 lagging, which is what a
+     * loaded PMSM should show. */
+    static constexpr int PhaseVoltageFor[3] = { VoltageB, VoltageC, VoltageA };
 
     /* ---- ADC scaling ------------------------------------------------------
      * CALIBRATE THESE. The producer carries current_scale/rpm_scale in its
@@ -111,9 +139,27 @@ public:
      *
      * 12-bit ADC on a 3.3V reference. Currents are bipolar through a sense amp
      * with mid-rail zero; voltages come off a divider and are unipolar.       */
-    static constexpr float ADC_MIDSCALE     = 2048.f;
-    static constexpr float AMPS_PER_COUNT   = 0.05f;   /* 100 A full scale     */
-    static constexpr float VOLTS_PER_COUNT  = 0.1f;    /* ~410 V full scale    */
+    static constexpr float ADC_MIDSCALE     = 2047.f;  /* measured at rest */
+
+    /* The phase channels and the bus channel DO NOT share a divider, so one
+     * VOLTS_PER_COUNT cannot serve both. With the bus at rest reading 2633
+     * counts, a phase clamped to the rail reads 2071 -- consistently, at every
+     * throttle setting. Using the bus constant for the phases under-reads them
+     * by 21%. Both derive from VBUS_VOLTS, which is the only one to re-measure
+     * if the pack changes. */
+    static constexpr float VBUS_VOLTS            = 48.f;
+    static constexpr float VOLTS_PER_COUNT_BUS   = VBUS_VOLTS / 2633.f;
+    static constexpr float VOLTS_PER_COUNT_PHASE = VBUS_VOLTS / 2071.f;
+
+    /* CALIBRATE ME -- the only constant the capture cannot pin down, and the
+     * one that sets the absolute power scale. 0.05 was 6x too high: it put the
+     * phase current at 68 A rms and full-throttle power at 2.3 kW on a 450 W
+     * machine. 0.0085 lands full throttle at ~450-510 W, but that was derived
+     * from the nameplate, so it is self-consistent rather than independently
+     * confirmed. Clamp-meter one phase at steady full throttle and solve
+     *     AMPS_PER_COUNT = I_phase_peak / 1790
+     * (1790 counts being the measured space-vector amplitude there). */
+    static constexpr float AMPS_PER_COUNT   = 0.0085f;
 
     /* ---- speed, from the throttle channel ---------------------------------
      * The wire's `rpm` field is dead -- no tach is fitted, so it reads 0 on
@@ -130,7 +176,16 @@ public:
      * through a divider. SPEED_DIVIDER is that ratio and is a guess -- 2:1 puts
      * the range at 0.55..2.1V, comfortably inside the ADC. CALIBRATE IT: read
      * raw counts at closed and full throttle and solve for the two ends.      */
-    static constexpr float RPM_MAX          = 800.f;   /* motor's rated maximum */
+    /* 52 poles. Measured, not assumed: the vibration 1x rotational order was
+     * tracked against the integrated electrical angle across the whole capture
+     * and 26 pole pairs wins by 4.7x over the next candidate, with the 2x
+     * order agreeing. rpm = electrical_Hz * 60 / 26. */
+    static constexpr int   POLE_PAIRS       = 26;
+
+    /* Measured ceiling: full throttle settles at 340.2 Hz electrical = 786 rpm.
+     * Rounded up so the real maximum sits just inside the dial rather than
+     * pinning it. */
+    static constexpr float RPM_MAX          = 790.f;
     static constexpr float THROTTLE_V_MIN   = 1.1f;
     static constexpr float THROTTLE_V_MAX   = 4.2f;
     static constexpr float ADC_VREF         = 3.3f;
@@ -149,7 +204,12 @@ public:
     /* Power dial top. The motor is rated 450W, so the old 0..6kW scale left the
      * needle in the bottom 7% of its sweep. Watts, not kilowatts -- at this
      * size kW would read 0.4 and never move.                                  */
-    static constexpr float POWER_MAX_W      = 450.f;
+    /* 450 (the nameplate) is not enough headroom: the machine actually draws
+     * ~512W at steady full throttle on the bench, so a 450 dial reads pinned at
+     * maximum the entire time it is held there and the needle stops carrying
+     * information exactly when it matters. 600 puts the real maximum at ~85% of
+     * sweep with room for the load transients above it. */
+    static constexpr float POWER_MAX_W      = 600.f;
 
     /* ---- filtering --------------------------------------------------------
      * Time constants in seconds, applied as a one-pole low pass against the
@@ -158,6 +218,10 @@ public:
      *
      * Power gets the longer one: it is a product of two noisy channels, so its
      * noise is roughly the sum of both in relative terms.                     */
+    /* Gravity tracker for the vibration path: long enough to pass every real
+     * vibration through untouched, short enough to settle after a remount. */
+    static constexpr float TAU_GRAVITY_S    = 5.0f;
+
     static constexpr float TAU_SPEED_S      = 0.25f;
     static constexpr float TAU_POWER_S      = 0.40f;
 
@@ -213,8 +277,20 @@ public:
      * needs a tach, not a threshold. What is left warns at near-maximum, which
      * is a real thing to show.                                                */
     static constexpr float SPEED_WARN_RPM   = RPM_MAX * 0.95f;
-    static constexpr float VIB_WARN_G       = 2.f;
-    static constexpr float VIB_CRIT_G       = 4.f;
+    /* AC ONLY -- gravity must be removed before these are applied.
+     *
+     * The old 2g/4g pair could never fire. vibTotal is the magnitude of the
+     * raw accelerometer vector, which at rest is 1g of gravity (measured: the
+     * Z axis sits at 0.968g) and barely moves: total AC vibration across the
+     * whole capture ranged 0.010g at standstill to 0.100g under load. So the
+     * band sat at ~0.97g forever and the thresholds were 20x out of reach.
+     *
+     * Set from the measured floor: 0.10g is normal loaded running, so warn at
+     * 3x that and call 0.6g critical. Retune once a genuinely faulty run has
+     * been recorded -- these are headroom over a healthy baseline, not
+     * observed fault levels. */
+    static constexpr float VIB_WARN_G       = 0.30f;
+    static constexpr float VIB_CRIT_G       = 0.60f;
     /* ---- health -------------------------------------------------------------
      * The right-hand band. Not a sensor reading -- there is no health sensor --
      * but not invented either: it is the remaining margin to whichever measured
@@ -237,10 +313,17 @@ public:
      * hardware for the same reason.                                          */
     static constexpr float AI_ALERT_HEALTH  = 0.35f;
 
-    /* 450W at a ~24V pack is about 19A. Rated current is what this should be
-     * set from once the pack voltage is known -- the bus voltage is measured
-     * on channel 6, so it could be derived instead of assumed. */
-    static constexpr float CURRENT_WARN_A   = 20.f;
+    /* The bus measures 48V, not 24V, so 450W is ~9.4A DC. Phase current at
+     * full throttle measured 10.8A rms (1790 counts peak) at the calibration
+     * above. Warn a little over that. Scales with AMPS_PER_COUNT, so recheck
+     * this when that is calibrated properly. */
+    static constexpr float CURRENT_WARN_A   = 13.f;
+
+    /* The current channel rails at 0/4095 counts. This is not hypothetical:
+     * it reached 20% of samples during loaded running in the capture, and
+     * while it is railing both current and power read low. Worth its own
+     * telltale rather than being folded into the overcurrent warning. */
+    static constexpr float CLIP_WARN_FRACTION = 0.02f;
 
     float speed()         const { return m_speedKmh; }
     float power()         const { return m_powerW; }
@@ -323,6 +406,11 @@ private:
     float m_busVoltage  = 0.f;
     float m_throttle    = 0.f;   /* 0..1, from the speed command channel */
     float m_health      = 1.f;   /* 0..1, margin to the nearest limit */
+    /* Slow-tracked gravity vector, subtracted from the accelerometer before
+     * the vibration magnitude is taken. */
+    float m_gX = 0.f, m_gY = 0.f, m_gZ = 0.f;
+    bool  m_gravityPrimed = false;
+
     float m_vibX        = 0.f;
     float m_vibY        = 0.f;
     float m_vibZ        = 0.f;

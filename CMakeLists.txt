@@ -64,6 +64,7 @@ qt_add_qml_module(appCluster
         AiReader.h
         AiReader.cpp
         motor_wire.h
+        MotorBlockAnalyzer.h
     RESOURCES
         images.qrc
 )
