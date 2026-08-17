@@ -18,6 +18,19 @@ struct MotorSnapshot {
     uint32_t seq;         /* monotonic per block                          */
     uint64_t timestamp;   /* microseconds (STM ticks)                     */
     uint16_t flags;
+
+    /* ---- derived from the block ring, not from this row -------------------
+     * Computed over all 200 rows of the block by MotorBlockAnalyzer, because
+     * neither number can be got from a single row: speed is aliased past
+     * Nyquist at the snapshot rate, and power needs averaging across the PWM.
+     * Valid only when derivedValid is true -- during spin-up, or with the
+     * motor stopped, the angle tracker has nothing to lock to. */
+    bool  derivedValid = false;
+    float rpmMeasured  = 0.f;   /* shaft rpm, from electrical frequency / 26 */
+    float powerW       = 0.f;   /* real power, signed; negative is regen     */
+    float currentRmsA  = 0.f;   /* phase current, amps RMS                   */
+    bool  currentClipping = false;  /* ADC railing -- readings under-report  */
+    uint32_t blocksDropped = 0; /* ring laps since the last emit             */
 };
 Q_DECLARE_METATYPE(MotorSnapshot)
 

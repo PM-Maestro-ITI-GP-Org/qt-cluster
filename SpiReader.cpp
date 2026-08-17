@@ -1,4 +1,6 @@
 #include "SpiReader.h"
+#include "MotorBlockAnalyzer.h"
+#include "cluster.h"   /* VehicleBackend::Channel + PhaseVoltageFor: one channel map */
 
 /* --- Shared-memory contract -------------------------------------------
  *
@@ -78,6 +80,56 @@ static_assert(offsetof(ShmRegionHeader, snapshot.timestamp) == 72, "timestamp mo
 static_assert(offsetof(ShmRegionHeader, snapshot.flags) == 80, "flags moved");
 static_assert(offsetof(ShmRegionHeader, snapshot.row) == 84, "row moved");
 
+/* ---- the block ring ---------------------------------------------------
+ * The snapshot is one row in 200. Speed cannot be recovered from it at all --
+ * the electrical fundamental reaches 340Hz while the snapshot path runs at
+ * 100Hz, so it is aliased past Nyquist. The ring carries every row, which is
+ * why this mirror had to grow past the prefix.
+ *
+ * Offsets again read off the real shm_block_t / shm_block_ring_t compiled as
+ * C11, not derived here. */
+constexpr uint32_t kMotorRingDepth = 16;   // motor_shm.h: MOTOR_RING_DEPTH
+
+struct MotorBlockShm {
+    alignas(kMotorCacheline) std::atomic<uint32_t> seq;
+    uint32_t     producer_seq;
+    uint64_t     timestamp;
+    uint16_t     n_rows;
+    uint16_t     flags;
+    uint64_t     row_ts[MOTOR_MAX_ROWS_PER_BLOCK];
+    motor_row_t  rows[MOTOR_MAX_ROWS_PER_BLOCK];
+};
+
+struct MotorRingShm {
+    alignas(kMotorCacheline) std::atomic<uint64_t> write_pos;
+    uint32_t      depth;
+    uint32_t      _pad;
+    /* Named `blocks`, not `slots` as in shm_block_ring_t: Qt defines `slots`
+     * as a macro for the signals/slots syntax, so the member declaration
+     * expanded to nothing and the struct silently lost its array. Only the
+     * LAYOUT has to match the producer, not the field names, and the
+     * static_asserts below are what actually hold the two together. */
+    MotorBlockShm blocks[kMotorRingDepth];
+};
+
+struct ShmRegionFull {
+    ShmRegionHeader header;
+    alignas(kMotorCacheline) MotorRingShm ring;
+};
+
+static_assert(sizeof(MotorBlockShm) == 6464, "shm_block_t size drifted");
+static_assert(offsetof(MotorBlockShm, producer_seq) == 4, "block producer_seq moved");
+static_assert(offsetof(MotorBlockShm, timestamp) == 8, "block timestamp moved");
+static_assert(offsetof(MotorBlockShm, n_rows) == 16, "block n_rows moved");
+static_assert(offsetof(MotorBlockShm, flags) == 18, "block flags moved");
+static_assert(offsetof(MotorBlockShm, row_ts) == 24, "block row_ts moved");
+static_assert(offsetof(MotorBlockShm, rows) == 1624, "block rows moved");
+static_assert(sizeof(MotorRingShm) == 103488, "shm_block_ring_t size drifted");
+static_assert(offsetof(MotorRingShm, depth) == 8, "ring depth moved");
+static_assert(offsetof(MotorRingShm, blocks) == 64, "ring slots moved");
+static_assert(sizeof(ShmRegionFull) == 103616, "shm_region_t size drifted");
+static_assert(offsetof(ShmRegionFull, ring) == 128, "ring moved");
+
 } // namespace
 
 SpiReader::SpiReader(QObject *parent) : QThread(parent)
@@ -117,6 +169,9 @@ void SpiReader::run()
     }
 
     m_shm_size = sizeof(ShmRegionHeader);
+    /* The whole region now, not just the prefix: the ring starts at 128 and
+     * the block data is the only place speed can come from. */
+    m_shm_size = sizeof(ShmRegionFull);
     m_shm = mmap(nullptr, m_shm_size, PROT_READ, MAP_SHARED, fd, 0);
     close(fd);
     if (m_shm == MAP_FAILED) {
@@ -143,6 +198,23 @@ void SpiReader::run()
     }
 
     const MotorSnapshotShm *snap = &region->snapshot;
+    const MotorRingShm *ring =
+        &static_cast<const ShmRegionFull *>(m_shm)->ring;
+
+    /* Start from what the producer writes NEXT. The ring holds ~160ms and has
+     * certainly lapped since it was created, so beginning at slot 0 would
+     * report every stale slot as a drop -- which reads as a performance fault
+     * and is really just the gap before we started looking. Same reasoning as
+     * shm_reader_resync() in motor_ai_client. */
+    uint64_t readPos = ring->write_pos.load(std::memory_order_acquire);
+
+    MotorBlockAnalyzer analyzer;
+    bool  haveDerived    = false;
+    float derivedRpm     = 0.f;
+    float derivedPower   = 0.f;
+    float derivedCurrent = 0.f;
+    bool  derivedClip    = false;
+    uint32_t dropped     = 0;
 
     uint32_t last_seq = UINT32_MAX;
 
@@ -163,8 +235,77 @@ void SpiReader::run()
         }
         /* ------------------------------------------------------------- */
 
+        /* ---- drain the block ring -------------------------------------
+         * Every block since the last poll, in order. The analyzer's filter
+         * state deliberately carries across blocks (reset() clears only the
+         * accumulators), so the boundary is not a discontinuity. */
+        const uint64_t writePos = ring->write_pos.load(std::memory_order_acquire);
+
+        if (writePos - readPos > kMotorRingDepth) {
+            /* Lapped: the producer overran us. Skip to the oldest slot still
+             * intact rather than reading torn ones, and count what was lost.
+             * Then the analyzer's history is stale, so drop its continuity. */
+            dropped += static_cast<uint32_t>(writePos - readPos - kMotorRingDepth);
+            readPos = writePos - kMotorRingDepth;
+            analyzer.resetHistory();
+        }
+
+        for (; readPos < writePos; ++readPos) {
+            const MotorBlockShm *slot = &ring->blocks[readPos % kMotorRingDepth];
+
+            /* Per-slot seqlock: the producer may overwrite this slot while we
+             * copy it. Read the rows, then re-check; on a torn read the block
+             * is skipped rather than fed to the analyzer as garbage. */
+            const uint32_t b1 = slot->seq.load(std::memory_order_acquire);
+            if (b1 & 1u) break;              /* being written -- come back later */
+
+            uint16_t n = slot->n_rows;
+            if (n > MOTOR_MAX_ROWS_PER_BLOCK) n = MOTOR_MAX_ROWS_PER_BLOCK;
+            if (n < 2) continue;
+
+            /* Row rate from the producer's own per-row timestamps, so a
+             * reconfigured sample rate cannot silently rescale every speed. */
+            const uint64_t dtUs = slot->row_ts[1] - slot->row_ts[0];
+            if (dtUs > 0)
+                analyzer.setRowRateHz(1e6f / static_cast<float>(dtUs));
+
+            analyzer.reset();
+            for (uint16_t i = 0; i < n; ++i)
+                analyzer.addRow(slot->rows[i].current,
+                                VehicleBackend::CurrentA,
+                                VehicleBackend::CurrentB,
+                                VehicleBackend::CurrentC,
+                                VehicleBackend::PhaseVoltageFor[0],
+                                VehicleBackend::PhaseVoltageFor[1],
+                                VehicleBackend::PhaseVoltageFor[2]);
+
+            const uint32_t b2 = slot->seq.load(std::memory_order_acquire);
+            if (b1 != b2) { ++dropped; analyzer.resetHistory(); continue; }
+
+            derivedPower   = analyzer.watts();
+            derivedCurrent = analyzer.currentRms();
+            derivedClip    = analyzer.currentClipping();
+            if (analyzer.valid()) {
+                derivedRpm  = analyzer.rpm();
+                haveDerived = true;
+            } else {
+                /* Not turning, or not turning steadily enough to measure.
+                 * Report zero rather than the last good value, which would
+                 * leave the dial reading a speed the shaft no longer has. */
+                derivedRpm  = 0.f;
+                haveDerived = true;
+            }
+        }
+
         if (local.seq != last_seq) {
             last_seq = local.seq;
+            local.derivedValid    = haveDerived;
+            local.rpmMeasured     = derivedRpm;
+            local.powerW          = derivedPower;
+            local.currentRmsA     = derivedCurrent;
+            local.currentClipping = derivedClip;
+            local.blocksDropped   = dropped;
+            dropped = 0;
             emit newData(local);
         }
 

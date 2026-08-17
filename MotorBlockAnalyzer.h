@@ -32,8 +32,15 @@ public:
      * order agrees, which a coincidence would not do. 52 poles.             */
     static constexpr int   POLE_PAIRS   = 26;
 
-    /* Sampling rate of the rows inside a block (config.sample_rate_hz). */
-    static constexpr float ROW_RATE_HZ  = 20000.f;
+    /* Sampling rate of the rows inside a block (config.sample_rate_hz).
+     * Only the default -- setRowRateHz() takes the real one, derived from the
+     * per-row timestamps the producer publishes alongside the rows, so a
+     * producer reconfigured to a different sample rate does not silently
+     * rescale every speed reading. */
+    static constexpr float ROW_RATE_HZ_DEFAULT = 20000.f;
+
+    void setRowRateHz(float hz) { if (hz > 1.f) m_rowRateHz = hz; }
+    float rowRateHz() const { return m_rowRateHz; }
 
     /* ---- ADC scaling ------------------------------------------------------
      * The phase-voltage channels and the DC-bus channel DO NOT share a divider.
@@ -85,6 +92,13 @@ public:
     void reset() { m_n = 0; m_nAng = 0; m_sumDth = 0.f;
                    m_accP = 0.f; m_accI2 = 0.f; m_clip = 0; }
 
+    /* Drop the cross-block continuity too. Called when the ring lapped or a
+     * slot tore: the previous sample is then from an unknown distance in the
+     * past, and differencing against it would fabricate a rotation that never
+     * happened. */
+    void resetHistory() { m_have = false; m_fAl = 0.f; m_fBe = 0.f;
+                          m_pAl = 0.f; m_pBe = 0.f; }
+
     /* Feed one row. `ch` is the raw 8-channel ADC array, in WIRE order.
      * Caller supplies the channel indices so the mapping lives in one place.  */
     void addRow(const uint16_t *ch, int iA, int iB, int iC,
@@ -126,7 +140,7 @@ public:
          * between consecutive samples than the fundamental does (6 deg at 340 Hz
          * and 20 kHz), so the per-sample increments come out random-signed and
          * average to zero. Measured 1 rpm instead of 780 before this was added. */
-        const float k = 1.f - std::exp(-2.f * 3.14159265f * ANGLE_LP_HZ / ROW_RATE_HZ);
+        const float k = 1.f - std::exp(-2.f * 3.14159265f * ANGLE_LP_HZ / m_rowRateHz);
         m_fAl += k * (ial - m_fAl);
         m_fBe += k * (ibe - m_fBe);
 
@@ -156,7 +170,7 @@ public:
     float electricalHz() const
     {
         if (!valid()) return 0.f;
-        return (m_sumDth / (2.f * 3.14159265f)) * (ROW_RATE_HZ / float(m_nAng));
+        return (m_sumDth / (2.f * 3.14159265f)) * (m_rowRateHz / float(m_nAng));
     }
 
     /* Shaft speed, rpm. This is a measurement of the shaft, not a restatement
@@ -184,6 +198,7 @@ public:
     }
 
 private:
+    float m_rowRateHz = ROW_RATE_HZ_DEFAULT;
     bool  m_have  = false;
     float m_fAl = 0.f, m_fBe = 0.f;   /* pre-filter state, survives reset() */
     int   m_n     = 0;

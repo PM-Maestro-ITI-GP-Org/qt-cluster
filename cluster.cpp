@@ -179,7 +179,16 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
      * steady through the cycle, which a single |i| sample is not. Over root 2
      * for RMS. Drives the overcurrent warning and nothing else.              */
     const float iPeak = std::sqrt(2.f / 3.f * (ia * ia + ib * ib + ic * ic));
-    m_currentRms = iPeak / 1.41421356f;
+    m_currentRms = snap.derivedValid ? snap.currentRmsA : (iPeak / 1.41421356f);
+
+    /* The ADC railing is its own fault, not an overcurrent: while it rails,
+     * current and power both read LOW, so the overcurrent warning is exactly
+     * the thing that will not fire. It reached 20% of samples under load on
+     * the bench capture. */
+    if (snap.currentClipping != m_currentClipping) {
+        m_currentClipping = snap.currentClipping;
+        emit currentWarningChanged();
+    }
 
     /* The justification above is wrong in its reasoning but survivable in its
      * conclusion, and it is worth being precise about which.
@@ -206,7 +215,14 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
      * written and validated but NOT yet wired up, because SpiReader mmaps only
      * the region header and snapshot prefix and the block ring's layout lives
      * in motor_shm.h, which is not in this repo. */
-    const float pInstant = va * ia + vb * ib + vc * ic;
+    /* Power now comes from the block ring, computed across all 200 rows by
+     * MotorBlockAnalyzer, rather than from this single row. The row product
+     * below is kept only as the fallback for a producer that publishes a
+     * snapshot but no usable ring -- it converges on roughly the right mean
+     * but carries the whole PWM scatter, because these voltages are raw PWM
+     * and one row lands wherever the switching happened to be. */
+    const float pRowFallback = va * ia + vb * ib + vc * ic;
+    const float pInstant = snap.derivedValid ? snap.powerW : pRowFallback;
 
     /* --- speed -------------------------------------------------------------
      * From the throttle channel, not snap.rpm: no tach is fitted, so the wire's
@@ -225,7 +241,18 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     m_throttle = qnx_clamp((throttleV - THROTTLE_V_MIN)
                            / (THROTTLE_V_MAX - THROTTLE_V_MIN), 0.f, 1.f);
 
-    const float rpmRaw = medianRpm(m_throttle * RPM_MAX);
+    /* MEASURED shaft speed, from the electrical frequency of the phase
+     * currents divided by the 26 pole pairs -- not the throttle command, which
+     * is what this used to be and which is off by up to 636 rpm and biased in
+     * opposite directions by regime (-130 accelerating, +121 loaded). The
+     * command is still published as `throttle` for anyone who wants it; it is
+     * simply no longer pretending to be a speed.
+     *
+     * When the block ring has nothing to measure -- motor stopped, or spinning
+     * up too slowly for the angle tracker to lock -- this reads 0 rather than
+     * falling back to the command, because a wrong speed presented as a
+     * measurement is worse than an obviously absent one. */
+    const float rpmRaw = medianRpm(snap.derivedValid ? snap.rpmMeasured : 0.f);
 
     if (!m_primed) {
         /* Adopt the first sample rather than ramping to it from zero, which
@@ -361,7 +388,14 @@ void VehicleBackend::evaluateHealth()
 void VehicleBackend::evaluateWarnings()
 {
     /* Vibration warning uses (total - 1g) so gravity does not trip it. */
-    const float vibDynamic = std::abs(m_vibTotal - 1.f);
+    /* m_vibTotal is ALREADY gravity-free -- the accelerometer's DC vector is
+     * tracked and subtracted where it is computed. This used to read
+     * abs(m_vibTotal - 1.f), which was the right correction back when
+     * m_vibTotal carried gravity, and became a double subtraction the moment
+     * that changed: 0.03g of real vibration came out as abs(0.03 - 1.0) =
+     * 0.97g, which pinned the vibration warning on permanently and showed
+     * E-31 on a healthy machine. */
+    const float vibDynamic = m_vibTotal;
 
     /* Against rpm, not the converted speed: the thresholds are a property of
      * the motor, and KMH_PER_RPM is a property of the rig it is bolted to. */

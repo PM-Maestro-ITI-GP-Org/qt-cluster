@@ -355,7 +355,11 @@ public:
 
     bool speedWarning()   const { return m_speedWarning; }
     bool vibWarning()     const { return m_vibWarning; }
-    bool currentWarning() const { return m_currentWarning; }
+    /* Overcurrent OR the sense channel railing. Deliberately one lamp: both
+     * mean "do not trust the current reading, and look at the machine", and a
+     * cluster with two nearly-identical amber telltales teaches the driver to
+     * ignore both. */
+    bool currentWarning() const { return m_currentWarning || m_currentClipping; }
     bool criticalAlert()  const { return m_criticalAlert; }
 
 public slots:
@@ -408,6 +412,7 @@ private:
     float m_health      = 1.f;   /* 0..1, margin to the nearest limit */
     /* Slow-tracked gravity vector, subtracted from the accelerometer before
      * the vibration magnitude is taken. */
+    bool  m_currentClipping = false;   /* ADC railing; readings under-report */
     float m_gX = 0.f, m_gY = 0.f, m_gZ = 0.f;
     bool  m_gravityPrimed = false;
 
