@@ -222,6 +222,15 @@ public:
      * vibration through untouched, short enough to settle after a remount. */
     static constexpr float TAU_GRAVITY_S    = 5.0f;
 
+    /* Averaging window for the vibration RMS the thresholds are compared
+     * against. The thresholds are RMS levels, so the measurement has to be one
+     * too -- see the note where vibDynamic is computed. */
+    static constexpr float TAU_VIB_RMS_S    = 0.5f;
+
+    /* ~1s at the 100Hz block rate. Long enough for the running mean to have
+     * averaged the vibration out of the gravity estimate. */
+    static constexpr int   VIB_WARMUP_SAMPLES = 100;
+
     static constexpr float TAU_SPEED_S      = 0.25f;
     static constexpr float TAU_POWER_S      = 0.40f;
 
@@ -413,8 +422,10 @@ private:
     /* Slow-tracked gravity vector, subtracted from the accelerometer before
      * the vibration magnitude is taken. */
     bool  m_currentClipping = false;   /* ADC railing; readings under-report */
+    float m_vibMeanSq   = 0.f;         /* one-pole mean square -> vibration RMS */
     float m_gX = 0.f, m_gY = 0.f, m_gZ = 0.f;
     bool  m_gravityPrimed = false;
+    int   m_gravityN      = 0;         /* samples seen; drives the warm-up gain */
 
     float m_vibX        = 0.f;
     float m_vibY        = 0.f;

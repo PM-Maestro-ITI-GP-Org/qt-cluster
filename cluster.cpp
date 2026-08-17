@@ -131,6 +131,7 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
      * the block rate can change without changing how the gauges behave. */
     const float aSpeed = dt > 0.f ? dt / (TAU_SPEED_S + dt) : 0.f;
     const float aPower = dt > 0.f ? dt / (TAU_POWER_S + dt) : 0.f;
+    const float aVib   = dt > 0.f ? dt / (TAU_VIB_RMS_S + dt) : 0.f;
 
     /* --- electricals -------------------------------------------------------
      * A note on what this actually sees. Voltage and current are sampled at
@@ -298,7 +299,22 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
      * it tracks whatever orientation the IMU is actually mounted at, so the
      * rig can be remounted without recalibrating. TAU_GRAVITY_S is far longer
      * than any vibration period and far shorter than a session. */
-    const float aG = (dt > 0.f) ? dt / (TAU_GRAVITY_S + dt) : 0.f;
+    /* Warm-up matters here, and getting it wrong shows on screen. Seeding the
+     * estimate with the FIRST sample and then tracking at TAU_GRAVITY_S leaves
+     * it wrong by however far that one sample sat from the true DC -- up to
+     * 0.4g on this rig, decaying over ~15s. That residual is indistinguishable
+     * from vibration, so the vibration lamp came on for the first ten seconds
+     * of every boot. Caught by screenshotting at 2.5s and again at 14s: E-31
+     * then E-12.
+     *
+     * So the gain is the running mean's 1/n while that is larger than the
+     * one-pole's, which makes the first second a true average over ~13
+     * rotations -- long enough for the vibration to average out -- and then
+     * settles into the one-pole without a seam. */
+    if (m_gravityN < INT_MAX) ++m_gravityN;
+    const float aSlow = (dt > 0.f) ? dt / (TAU_GRAVITY_S + dt) : 0.f;
+    const float aFast = 1.f / static_cast<float>(m_gravityN);
+    const float aG = (dt > 0.f) ? std::max(aSlow, aFast) : 0.f;
     if (!m_gravityPrimed) {
         m_gX = vx; m_gY = vy; m_gZ = vz; m_gravityPrimed = true;
     } else if (aG > 0.f) {
@@ -308,6 +324,13 @@ void VehicleBackend::onSpiData(MotorSnapshot snap)
     }
     const float ax = vx - m_gX, ay = vy - m_gY, az = vz - m_gZ;
     const float vTotal = std::sqrt(ax * ax + ay * ay + az * az);
+
+    /* Accumulated here rather than in evaluateWarnings() because this is where
+     * dt is, and outside the change guard below because the mean square wants
+     * every sample -- the IMU value repeating across a ZOH run is still a real
+     * sample of a quiet interval, and skipping those would bias the RMS up. */
+    if (aVib > 0.f)
+        m_vibMeanSq += (vTotal * vTotal - m_vibMeanSq) * aVib;
 
     if (vx != m_vibX || vy != m_vibY || vz != m_vibZ) {
         m_vibX = vx; m_vibY = vy; m_vibZ = vz;
@@ -395,7 +418,25 @@ void VehicleBackend::evaluateWarnings()
      * that changed: 0.03g of real vibration came out as abs(0.03 - 1.0) =
      * 0.97g, which pinned the vibration warning on permanently and showed
      * E-31 on a healthy machine. */
-    const float vibDynamic = m_vibTotal;
+    /* A short RMS, not the instantaneous magnitude.
+     *
+     * m_vibTotal is one accelerometer sample. The thresholds were set from RMS
+     * levels measured over the bench capture (0.010g idle, 0.100g loaded), and
+     * comparing a single sample against an RMS-derived limit is a category
+     * error: peak-to-RMS on this rig is about 4x, so instantaneous excursions
+     * touch 0.43g and the 0.30g warning flickered on and off between frames on
+     * a perfectly healthy machine. A fault lamp that blinks at random is worse
+     * than no lamp.
+     *
+     * Mean square through a one-pole, then the root: that is an RMS over
+     * roughly TAU_VIB_RMS_S, which is what the thresholds actually describe.
+     * Short enough that a real step in vibration still shows up promptly. */
+    /* Until gravity has a second or so of history the residual is still
+     * bigger than any real vibration, so the vibration limits are simply not
+     * asserted yet. Reporting nothing briefly is better than reporting a
+     * fault that is an artefact of startup. */
+    const bool vibReady = m_gravityN > VIB_WARMUP_SAMPLES;
+    const float vibDynamic = vibReady ? std::sqrt(m_vibMeanSq) : 0.f;
 
     /* Against rpm, not the converted speed: the thresholds are a property of
      * the motor, and KMH_PER_RPM is a property of the rig it is bolted to. */
