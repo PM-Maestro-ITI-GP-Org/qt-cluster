@@ -183,10 +183,27 @@ NetworkClock::NetworkClock(QObject *parent) : QObject(parent)
 
     m_zone = QTimeZone(zoneId.toUtf8());
     if (!m_zone.isValid()) {
-        /* A bad CLUSTER_TZ must not leave the clock showing UTC while claiming
-         * otherwise -- fall back explicitly and say so. */
-        qWarning() << "[clock] unknown timezone" << zoneId << "- falling back to Africa/Cairo";
-        m_zone = QTimeZone("Africa/Cairo");
+        /* An IANA id needs a tz database to resolve, and the QNX guest has no
+         * /usr/share/zoneinfo at all -- so EVERY named zone is invalid there,
+         * not just a misspelt one. The old fallback named another IANA zone,
+         * which fails identically, and an invalid QTimeZone makes toTimeZone()
+         * return an invalid QDateTime whose hour() and minute() are -1. That
+         * reached the screen as "-1:-1 AM".
+         *
+         * A fixed offset needs no database and is always valid. CLUSTER_TZ_OFFSET
+         * is hours east of UTC; the default is Cairo's summer time.
+         *
+         * ponytail: fixed offset means DST does not follow itself -- Cairo is
+         * +2 in winter and +3 in summer, so this needs changing twice a year
+         * until the image ships a tz database, at which point CLUSTER_TZ starts
+         * working properly and this branch stops being taken. */
+        bool offsetOk = false;
+        const int offsetH = qEnvironmentVariable("CLUSTER_TZ_OFFSET").toInt(&offsetOk);
+        const int useH = offsetOk ? offsetH : 3;
+        m_zone = QTimeZone(useH * 3600);
+        qWarning() << "[clock] timezone" << zoneId
+                   << "unavailable (no tz database?) - using fixed UTC offset"
+                   << useH << "h";
     }
 
     const QString serverList =
@@ -233,9 +250,14 @@ void NetworkClock::onOffset(qint64 offsetMs)
 
 void NetworkClock::tick()
 {
-    const QDateTime now =
-        QDateTime::fromMSecsSinceEpoch(QDateTime::currentMSecsSinceEpoch() + m_offsetMs)
-            .toTimeZone(m_zone);
+    QDateTime now =
+        QDateTime::fromMSecsSinceEpoch(QDateTime::currentMSecsSinceEpoch() + m_offsetMs);
+    const QDateTime local = now.toTimeZone(m_zone);
+    /* Belt and braces. Anything that makes the conversion fail must not put a
+     * negative hour on the display -- an invalid QDateTime reports hour() and
+     * minute() as -1, and the arithmetic below would happily format that. */
+    if (local.isValid())
+        now = local;
 
     /* The 12-hour hour is computed, not formatted, and the trap is worth
      * recording: Qt's "h" only means 12-hour if the SAME format string also
