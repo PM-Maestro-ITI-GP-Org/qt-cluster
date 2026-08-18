@@ -5,6 +5,22 @@ cmake_policy(SET CMP0009 NEW)
 # ============================================
 # 1. Qt shared libraries
 # ============================================
+# Emptied first, so the tree is always built from the Qt that is here NOW.
+#
+# The recursive copy below skips any soname already present (a cheap
+# already-deployed guard), which quietly turns into a trap the moment Qt itself
+# changes underneath an existing deploy tree: the stale copy is kept, and only
+# libraries that did not exist before get copied in. Rebuilding against a Qt
+# newly built with OpenGL produced exactly that -- a no-opengl libQt6Gui sitting
+# beside a brand-new libQt6OpenGL, and on the target:
+#
+#     unknown symbol: _ZN14QOpenGLContext11makeCurrentEP8QSurface
+#         referenced from libQt6OpenGL.so.6
+#
+# forty times over, because the QOpenGL* classes live in QtGui and the old one
+# does not export them. The walk has its own _processed visited-list, so
+# nothing here needs the filesystem to remember what it did.
+file(REMOVE_RECURSE ${DEPLOY_LIB_DIR})
 file(MAKE_DIRECTORY ${DEPLOY_LIB_DIR})
 
 # ============================================
