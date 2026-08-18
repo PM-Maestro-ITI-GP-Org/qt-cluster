@@ -160,7 +160,18 @@ export QT_QPA_PLATFORM_PLUGIN_PATH=\"$DIR/plugins/platforms\"
 # plugin that is neither deployed here nor meaningful on QNX. The QNX platform
 # plugin is libqqnx.so and talks to Screen. Overridable for a host-side run.
 export QT_QPA_PLATFORM=\"\${QT_QPA_PLATFORM:-qnx}\"
-export QT_QUICK_BACKEND=\"software\"
+# QT_QUICK_BACKEND is deliberately NOT set. It used to be forced to
+# \"software\", unconditionally and -- unlike every other line here -- with no
+# \${VAR:-...} form, so it could not even be overridden from outside.
+#
+# That was correct while qtbase was built no-opengl: Qt Quick had no RHI
+# backend to run on. It is not correct now that it is built with OpenGL ES 2,
+# and because the launcher runs last it silently beat the image environment,
+# which is a bad way to find out that a platform decision has two owners.
+#
+# Leaving it unset means Qt picks, and an external
+# QT_QUICK_BACKEND=software ./run.sh still reaches the application -- which is
+# the escape hatch for a host-side run with no GL.
 # 7\" panel: ~154x87mm active area at 1024x600.
 export QQNX_PHYSICAL_SCREEN_SIZE=\"\${QQNX_PHYSICAL_SCREEN_SIZE:-154,87}\"
 # Target panel size. NOTE: nothing reads these yet -- Main.qml sets its own
