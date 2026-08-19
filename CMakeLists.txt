@@ -160,18 +160,27 @@ export QT_QPA_PLATFORM_PLUGIN_PATH=\"$DIR/plugins/platforms\"
 # plugin that is neither deployed here nor meaningful on QNX. The QNX platform
 # plugin is libqqnx.so and talks to Screen. Overridable for a host-side run.
 export QT_QPA_PLATFORM=\"\${QT_QPA_PLATFORM:-qnx}\"
-# QT_QUICK_BACKEND is deliberately NOT set. It used to be forced to
-# \"software\", unconditionally and -- unlike every other line here -- with no
-# \${VAR:-...} form, so it could not even be overridden from outside.
+# Forced to \"software\" by default, but through the same \${VAR:-...} form as
+# every other line here, so it CAN be overridden from outside once qtbase is
+# ever rebuilt with OpenGL.
 #
-# That was correct while qtbase was built no-opengl: Qt Quick had no RHI
-# backend to run on. It is not correct now that it is built with OpenGL ES 2,
-# and because the launcher runs last it silently beat the image environment,
-# which is a bad way to find out that a platform decision has two owners.
+# The libqqnx.so actually deployed today has no QQnxEglWindow: nm -D on it
+# turns up no such symbol, and it references createPlatformVulkanInstance
+# instead. QT_CONFIG(opengl) is false in this qt6-qnx-libs build, so
+# QSGRhiSupport::applySettings() falls through to the \"#else\" branch --
+# \"m_rhiBackend = QRhi::Vulkan\" -- as its RHI default, and
+# QQnxIntegration::createPlatformWindow() has no case for
+# QSurface::VulkanSurface. It hits the switch's default and calls
+# qFatal(\"QQnxWindow: unsupported window API\"), every single time, deep in
+# QQmlApplicationEngine::load() before the window is ever shown. Confirmed via
+# gdb on the core: QQnxIntegration::createPlatformWindow -> QMessageLogger::fatal
+# -> qAbort, at main()'s first load() call.
 #
-# Leaving it unset means Qt picks, and an external
-# QT_QUICK_BACKEND=software ./run.sh still reaches the application -- which is
-# the escape hatch for a host-side run with no GL.
+# Forcing \"software\" selects QSurface::RasterSurface, which the plugin does
+# handle (QQnxRasterWindow). That is the only way this binary starts today.
+# Leave the override in place -- an external QT_QUICK_BACKEND=opengl ./run.sh
+# is the way to prove a future OpenGL-enabled qtbase without editing this file.
+export QT_QUICK_BACKEND=\"\${QT_QUICK_BACKEND:-software}\"
 # 7\" panel: ~154x87mm active area at 1024x600.
 export QQNX_PHYSICAL_SCREEN_SIZE=\"\${QQNX_PHYSICAL_SCREEN_SIZE:-154,87}\"
 # Target panel size. NOTE: nothing reads these yet -- Main.qml sets its own
