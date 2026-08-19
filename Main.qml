@@ -38,8 +38,7 @@ Window {
     readonly property color textColor: "white"      // every readout and label
     readonly property color scaleColor: "#8ea3ba"   // the 0..240 / 0..6 numbers
     readonly property color gearIdleColor: "#4c5c70" // the gears not selected
-    readonly property color faultColor: "#ff2b2b"   // telltales and motor lamp
-    readonly property color iconColor: "white"      // the telltales while idle
+    readonly property color faultColor: "#ff2b2b"   // motor lamp, code and banner
     // The overhead road drawn in fault mode. Sampled off the rails in
     // cluster_road.png at their brightest, so the two roads are the same colour
     // and the swap does not read as a change of scene.
@@ -1071,129 +1070,18 @@ Window {
         fillColor: root.healthColorAt(root.healthFrac)
     }
 
-    // --- Telltales -----------------------------------------------------------
-    // White when idle, flickering red when their fault is raised.
-    //
-    // The source PNGs are white silhouettes on transparent. That matters:
-    // MultiEffect's colorization tints by luminance, so the original black line
-    // art would have stayed black whatever colour was applied to it.
-    //
-    // None of these is wired to the backend. VehicleBackend has no signal for
-    // any of them — its only real faults are overspeed, vibration and
-    // overcurrent — so each is a plain property to bind later.
-    property bool faultEngine: false
-    property bool faultBattery: false
-    property bool faultAbs: false
-    property bool faultSeatbelt: false
-
     // --- Fault mode ----------------------------------------------------------
     // Two states for the centre of the lens. Normally the car is seen from
     // behind, sitting on the road graphic; when something is wrong the road
     // drops away and the view swaps to the car from above, so the eye goes to
     // the vehicle rather than to the driving scene.
     //
-    // Driven off the telltales *and* the backend's own alerts. The telltales
-    // are what the demo cycles, so the mode can be seen without hardware, and
-    // criticalAlert is the one fault signal that is real today — the four lamps
-    // above have nothing behind them yet.
-    readonly property bool faultMode: root.faultEngine || root.faultBattery
-                                      || root.faultAbs || root.faultSeatbelt
-                                      || Vehicle.criticalAlert
-                                      || Vehicle.aiAlert
-
-    component Telltale: Item {
-        id: lamp
-        property alias icon: img.source
-        property bool active: false
-
-        Image {
-            id: img
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            visible: false
-        }
-
-        MultiEffect {
-            id: tint
-            source: img
-            anchors.fill: img
-            // Colorized in both states, not just when raised: on a light
-            // scheme the PNGs' own white would disappear into the background.
-            // Colorizing to white is a no-op, so dark schemes are unaffected.
-            colorization: 1.0
-            colorizationColor: lamp.active ? root.faultColor : root.iconColor
-            // Full opacity in both states: idle reads as iconColor, raised as
-            // faultColor. Only the flicker takes it below 1.
-            opacity: 1.0
-
-            // Flicker only while raised; snap back to full after, so a lamp
-            // never gets stranded mid-fade when its fault clears.
-            SequentialAnimation on opacity {
-                running: lamp.active
-                loops: Animation.Infinite
-                NumberAnimation {
-                    to: 0.15
-                    duration: 260
-                }
-                NumberAnimation {
-                    to: 1.0
-                    duration: 260
-                }
-                onStopped: tint.opacity = 1.0
-            }
-        }
-    }
-
-    // Two per side in the upper corners, following the ring's shoulder.
-    readonly property real telltaleSize: root.artUnitH * 0.038
-    readonly property var telltaleX: [0.1771, 0.2318, 0.7682, 0.8229]
-    readonly property var telltaleY: [0.2495, 0.2153, 0.2153, 0.2495]
-
-    Repeater {
-        model: [
-            {
-                icon: "telltale_engine",
-                on: root.faultEngine
-            },
-            {
-                icon: "telltale_battery",
-                on: root.faultBattery
-            },
-            {
-                icon: "telltale_abs",
-                on: root.faultAbs
-            },
-            {
-                icon: "telltale_seatbelt",
-                on: root.faultSeatbelt
-            }
-        ]
-        delegate: Telltale {
-            width: root.telltaleSize
-            height: root.telltaleSize
-            x: root.artX + root.artW * root.telltaleX[index] - width / 2
-            y: root.artY + root.artH * root.telltaleY[index] - height / 2
-            icon: "qrc:/images/images/" + modelData.icon + ".png"
-            active: modelData.on
-        }
-    }
-
-    // Demo only: cycles the lamps so the flicker can be seen without hardware.
-    Timer {
-        interval: 2200
-        running: demoMode
-        repeat: true
-        property int step: 0
-        onTriggered: {
-            step = (step + 1) % 5;
-            root.faultEngine = step === 1;
-            root.faultBattery = step === 2;
-            root.faultAbs = step === 3;
-            root.faultSeatbelt = step === 4;
-        }
-    }
+    // Driven entirely off the AI verdict in shared memory -- no simulated or
+    // demo-injected faults. aiAlert is true whenever the anomaly field is not
+    // "normal" (the anomaly/normal-classifier disagreement is folded back into
+    // the normal case server-side, in motor_ai_server, so it never reaches
+    // here).
+    readonly property bool faultMode: Vehicle.aiAlert
 
     // --- Car ------------------------------------------------------------------
     // Centred between the two readouts, over the road graphic in the artwork.
@@ -1272,50 +1160,28 @@ Window {
 
     // --- Motor fault lamp and banner -----------------------------------------
     // A red glow over the drive unit, with the kind of fault named above the
-    // car. Both key off errorKind rather than off faultMode, so a fault that is
-    // neither — the seatbelt lamp — still swaps to the overhead view but does
-    // not accuse the motor of anything.
+    // car. Both key off errorKind rather than off faultMode.
     //
-    // The split follows what the backend measures. Vibration is mechanical;
-    // current is electrical; an overspeed is the motor running away, so it goes
-    // with mechanical. tempWarning and voltageWarning are left out: both are
-    // hardcoded false in cluster.h and would only look wired.
-    // Kind, code and symbol come out of one decision rather than three parallel
-    // ones, so the code, the banner and the icon in the lamp can never name
-    // different faults. First match wins, so a mechanical fault outranks an
-    // electrical one when both are up — the motor is the more urgent of the two.
-    //
-    // The OR groups that used to be on one line each are split out here so every
-    // source can carry its own code; the order, and so which fault wins, is
-    // unchanged. Codes are grouped by system: 1x overspeed, 2x electrical,
-    // 3x vibration, 4x braking.
+    // Kind and code come from the fault_class field of the AI verdict in
+    // shared memory -- the second of the three values motor_ai_client
+    // publishes, alongside anomaly and predicted maintenance. motor_ai_server
+    // guarantees fault_class is only ever "electrical" or "mechanical" when
+    // anomaly is not "normal" (it folds an anomaly+normal-classification
+    // disagreement back into the normal case before either reaches here), so
+    // there is no case left where aiAlert is true and this falls through
+    // empty.
     readonly property var errorFault: {
-        if (Vehicle.vibWarning)
-            return { kind: "MECHANICAL", code: "E-31" };
-        if (Vehicle.speedWarning)
-            return { kind: "MECHANICAL", code: "E-12" };
-        if (root.faultEngine)
-            return { kind: "MECHANICAL", code: "E-10" };
-        if (root.faultAbs)
-            return { kind: "MECHANICAL", code: "E-40" };
-        if (Vehicle.currentWarning)
-            return { kind: "ELECTRICAL", code: "E-21" };
-        if (root.faultBattery)
-            return { kind: "ELECTRICAL", code: "E-20" };
-        // The model flagged something no measured signal did. Last, so a
-        // reading the cluster can name outranks one it cannot, and with an
-        // empty kind on purpose: that suppresses the motor lamp and its
-        // symbol, which would otherwise accuse the drive unit of a fault the
-        // verdict never located. Fault mode still engages and the code shows.
-        if (Vehicle.aiAlert)
-            return { kind: "", code: "E-90" };
+        const cls = Vehicle.aiFaultClass.trim().toLowerCase();
+        if (cls === "mechanical")
+            return { kind: "MECHANICAL", code: "E-90" };
+        if (cls === "electrical")
+            return { kind: "ELECTRICAL", code: "E-90" };
         return { kind: "", code: "" };
     }
     readonly property string errorKind: root.errorFault.kind
     readonly property string errorCode: root.errorFault.code
     // Two symbols, drawn for this lamp at the size it actually renders --
-    // see tools/make_fault_icons.py. The corner telltales keep their own
-    // artwork; those name a component, this names a system.
+    // see tools/make_fault_icons.py.
     readonly property string errorIcon: root.errorKind === "MECHANICAL" ? "fault_mechanical"
                                      : root.errorKind === "ELECTRICAL" ? "fault_electrical" : ""
 
@@ -1449,14 +1315,14 @@ Window {
     // clock and the car's nose. Centred, so it sits in the road's empty middle
     // lane and never lands on a line.
     //
-    // Blinks at the telltales' 260ms rather than the motor glow's 700ms: this is
-    // the same alarm the corner lamps are raising, and at the slower rate the
-    // two beat against each other. Both animations start when the same fault
-    // flags go up, so they stay in phase without being driven from one clock.
+    // Blinks at 260ms rather than the motor glow's 700ms -- a faster rate for
+    // the thing naming the fault than for the wash of light under the car.
+    // Both animations start when errorCode/errorKind change together, so they
+    // stay in phase without being driven from one clock.
     //
     // Note this is the one place the flicker is applied to *text*. If it turns
     // out to be hard to read on the panel, raise the 0.2 floor rather than the
-    // duration — slowing it is what breaks step with the lamps.
+    // duration.
     readonly property real errorCodeY: 0.365    // fraction of artH, row centre
 
     Text {
