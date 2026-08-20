@@ -1191,11 +1191,17 @@ Window {
     // empty.
     // Codes follow the same family scheme the sensor-driven codes used before
     // the AI verdict replaced them: 2x electrical, 3x mechanical.
+    // Substring, not exact match. aiFaultClass is free text with no defined
+    // vocabulary -- see AiReader.cpp -- and /motor_fault_override (fault_tester's
+    // injection path) does not use the same words the real classifier does: it
+    // sends "electrical_fault", not "electrical". An exact match left aiAlert
+    // true (the car still swaps to the overhead view) with no icon or code to
+    // go with it, which is worse than matching loosely.
     readonly property var errorFault: {
         const cls = Vehicle.aiFaultClass.trim().toLowerCase();
-        if (cls === "mechanical")
+        if (cls.indexOf("mechanical") !== -1)
             return { kind: "MECHANICAL", code: "E-31" };
-        if (cls === "electrical")
+        if (cls.indexOf("electrical") !== -1)
             return { kind: "ELECTRICAL", code: "E-21" };
         return { kind: "", code: "" };
     }
