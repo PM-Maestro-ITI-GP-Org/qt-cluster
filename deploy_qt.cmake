@@ -61,20 +61,67 @@ endforeach()
 # ============================================
 # 4. Fonts
 # ============================================
-if(DEFINED PROJ_SOURCE_DIR AND DEFINED FONT_SOURCE_DIR)
+# These are the FALLBACK fonts -- the system font database the target sees.
+# The cluster's own type is not among them any more: Main.qml embeds it through
+# fonts.qrc and a FontLoader, precisely so the panel does not depend on what
+# lands here. What is deployed here still matters for anything Qt resolves by
+# family name rather than by file, so it should not be empty.
+#
+# And it WAS empty, silently, on every build. FONT_SOURCE_DIR defaults to
+# ${CMAKE_SOURCE_DIR}/../qt6-qnx-libs/fonts, a directory that does not exist in
+# this checkout, so all four entries in fonts.txt missed and each one produced a
+# warning that scrolled past in a build that otherwise succeeded. The tree
+# shipped with a fonts.conf and nothing for it to point at, which on a Qt built
+# with fontconfig (this one is -- libQt6Gui links libfontconfig.so.1, contrary
+# to the old note in run.sh) means a font database with zero families in it.
+#
+# So: fall back to the host's own font directories when FONT_SOURCE_DIR has
+# nothing, and say plainly at the end if the directory is still empty.
+if(DEFINED PROJ_SOURCE_DIR)
     file(MAKE_DIRECTORY ${DEPLOY_FONTS_DIR})
+    set(_font_search_dirs "")
+    if(DEFINED FONT_SOURCE_DIR AND EXISTS "${FONT_SOURCE_DIR}")
+        list(APPEND _font_search_dirs "${FONT_SOURCE_DIR}")
+    endif()
+    # Host fallbacks. The files named in fonts.txt are the standard DejaVu set,
+    # which any build host that can run Qt Creator already has.
+    foreach(_sysdir "/usr/share/fonts" "/usr/local/share/fonts")
+        if(EXISTS "${_sysdir}")
+            list(APPEND _font_search_dirs "${_sysdir}")
+        endif()
+    endforeach()
+
     set(_fonts_txt "${PROJ_SOURCE_DIR}/fonts.txt")
+    set(_fonts_deployed 0)
     if(EXISTS "${_fonts_txt}")
         file(STRINGS "${_fonts_txt}" _font_list)
         foreach(_font ${_font_list})
-            file(GLOB_RECURSE _matches "${FONT_SOURCE_DIR}/${_font}")
+            set(_matches "")
+            foreach(_fd ${_font_search_dirs})
+                file(GLOB_RECURSE _matches "${_fd}/${_font}")
+                if(_matches)
+                    break()
+                endif()
+            endforeach()
             if(_matches)
-                file(COPY ${_matches} DESTINATION ${DEPLOY_FONTS_DIR})
+                list(GET _matches 0 _match)
+                file(COPY ${_match} DESTINATION ${DEPLOY_FONTS_DIR})
+                math(EXPR _fonts_deployed "${_fonts_deployed} + 1")
                 message(STATUS "Deployed font: ${_font}")
             else()
-                message(WARNING "Font not found: ${_font} in ${FONT_SOURCE_DIR}")
+                message(WARNING "Font not found anywhere: ${_font}\n"
+                        "  searched: ${_font_search_dirs}")
             endif()
         endforeach()
+    endif()
+    if(_fonts_deployed EQUAL 0)
+        message(WARNING
+            "No fallback fonts deployed to ${DEPLOY_FONTS_DIR}.\n"
+            "  run.sh points FONTCONFIG_FILE and QT_QPA_FONTDIR at that directory, so the\n"
+            "  target's system font database will be empty. The cluster's own text still\n"
+            "  renders -- Main.qml embeds its typeface via fonts.qrc -- but anything that\n"
+            "  asks for a font by family name will get nothing. Set FONT_SOURCE_DIR to a\n"
+            "  directory holding the files listed in fonts.txt.")
     endif()
     file(WRITE "${DEPLOY_FONTS_DIR}/fonts.conf"
 "<?xml version=\"1.0\"?>

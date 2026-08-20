@@ -69,6 +69,7 @@ qt_add_qml_module(appCluster
         NetworkClock.cpp
     RESOURCES
         images.qrc
+        fonts.qrc
 )
 
 # ─── Force-disable QML AOT cache generation ────────────────────────────────
@@ -142,6 +143,65 @@ add_custom_command(TARGET appCluster POST_BUILD
     COMMENT "Deploying minimal Qt dependencies to ${QT_DEPLOY_DIR}"
 )
 
+# ============================================
+# Scene graph backend: decided here, not asserted
+# ============================================
+# This one line is the difference between the cluster and a stripped version of
+# it, so it is worth being explicit about why it is computed rather than fixed.
+#
+# The Qt Quick software adaptation supports neither item layers nor shader
+# effects. Under it EVERY MultiEffect in Main.qml draws nothing -- and each one
+# is fed by a `visible: false` source that exists only to be its input, so what
+# disappears is not an effect over a visible item, it IS the item. Lost that
+# way: the neon ring baseline, the speed-driven ring glow, both status bands,
+# their icons, and the motor fault lamp. What survives is the flat bezel PNG,
+# the road, the car and the text. That is the whole "it doesn't look like the
+# desktop on the target" symptom, and it is reproducible on a desktop with
+# QT_QUICK_BACKEND=software ./appCluster.
+#
+# So software rendering is never what we WANT. But it was also not a mistake to
+# force it: a Qt cross-built without OpenGL cannot do anything else, and on one
+# such build (see the commit that added the forcing) Qt Quick default-selected
+# the Vulkan RHI backend, which QQnxIntegration::createPlatformWindow() has no
+# case for -- qFatal("unsupported window API") on every launch, before the
+# window ever showed. Forcing software was the only way that binary started.
+#
+# Both facts are true; which one applies depends entirely on the Qt in
+# Qt6_DIR. Hardcoding either answer breaks the other machine, and this project
+# gets built against more than one Qt-for-QNX tree. QT_FEATURE_opengl is set by
+# Qt's own CMake package for the Qt actually being used, so let it decide.
+if(QT_FEATURE_opengl)
+    set(CLUSTER_BACKEND_BLOCK
+"# Left unset on purpose: this Qt HAS OpenGL (QT_FEATURE_opengl was ON at
+# configure time), so Qt picks the RHI OpenGL ES backend and every MultiEffect
+# in Main.qml renders. Forcing \"software\" here is what strips the ring, the
+# status bands and the fault lamp off the panel -- see CMakeLists.txt.
+#
+# QT_QUICK_BACKEND=software ./run.sh still forces the raster path, which is a
+# way to prove the binary runs if the target's GLES driver is not up. Expect
+# the cluster to look wrong there. QSG_INFO=1 prints which backend was chosen.")
+    message(STATUS "Scene graph: RHI/OpenGL (QT_FEATURE_opengl is ON) -- effects will render")
+else()
+    set(CLUSTER_BACKEND_BLOCK
+"# Forced, because this Qt was cross-built WITHOUT OpenGL (QT_FEATURE_opengl was
+# OFF at configure time). Qt Quick would default-select the Vulkan RHI backend,
+# which the QNX platform plugin has no window case for, and qFatal before the
+# window ever shows. Software rendering selects RasterSurface, which it handles.
+#
+# This is a degraded panel, not a working one: the software adaptation drops
+# every MultiEffect in Main.qml, taking the neon ring, both status bands, their
+# icons and the motor fault lamp with it. Rebuilding Qt for QNX with OpenGL ES
+# is what fixes that -- this line then disappears on its own.
+export QT_QUICK_BACKEND=\"\${QT_QUICK_BACKEND:-software}\"")
+    message(WARNING
+        "Qt6 at ${Qt6_DIR} has no OpenGL (QT_FEATURE_opengl is OFF).\n"
+        "  run.sh will force QT_QUICK_BACKEND=software, which is the only backend this\n"
+        "  Qt can start on -- but the software adaptation supports neither item layers\n"
+        "  nor shader effects, so every MultiEffect in Main.qml will draw NOTHING.\n"
+        "  The neon ring, both status bands, their icons and the motor fault lamp will\n"
+        "  be missing from the panel. Rebuild Qt for QNX with OpenGL ES to get them.")
+endif()
+
 # Generate a launcher
 file(GENERATE
     OUTPUT ${QT_DEPLOY_DIR}/run.sh
@@ -160,39 +220,28 @@ export QT_QPA_PLATFORM_PLUGIN_PATH=\"$DIR/plugins/platforms\"
 # plugin that is neither deployed here nor meaningful on QNX. The QNX platform
 # plugin is libqqnx.so and talks to Screen. Overridable for a host-side run.
 export QT_QPA_PLATFORM=\"\${QT_QPA_PLATFORM:-qnx}\"
-# Forced to \"software\" by default, but through the same \${VAR:-...} form as
-# every other line here, so it CAN be overridden from outside once qtbase is
-# ever rebuilt with OpenGL.
-#
-# The libqqnx.so actually deployed today has no QQnxEglWindow: nm -D on it
-# turns up no such symbol, and it references createPlatformVulkanInstance
-# instead. QT_CONFIG(opengl) is false in this qt6-qnx-libs build, so
-# QSGRhiSupport::applySettings() falls through to the \"#else\" branch --
-# \"m_rhiBackend = QRhi::Vulkan\" -- as its RHI default, and
-# QQnxIntegration::createPlatformWindow() has no case for
-# QSurface::VulkanSurface. It hits the switch's default and calls
-# qFatal(\"QQnxWindow: unsupported window API\"), every single time, deep in
-# QQmlApplicationEngine::load() before the window is ever shown. Confirmed via
-# gdb on the core: QQnxIntegration::createPlatformWindow -> QMessageLogger::fatal
-# -> qAbort, at main()'s first load() call.
-#
-# Forcing \"software\" selects QSurface::RasterSurface, which the plugin does
-# handle (QQnxRasterWindow). That is the only way this binary starts today.
-# Leave the override in place -- an external QT_QUICK_BACKEND=opengl ./run.sh
-# is the way to prove a future OpenGL-enabled qtbase without editing this file.
-export QT_QUICK_BACKEND=\"\${QT_QUICK_BACKEND:-software}\"
+# Scene graph backend. This block is generated: which of the two forms lands
+# here is decided at configure time from QT_FEATURE_opengl, because the right
+# answer differs per Qt-for-QNX build. See the reasoning in CMakeLists.txt.
+${CLUSTER_BACKEND_BLOCK}
 # 7\" panel: ~154x87mm active area at 1024x600.
 export QQNX_PHYSICAL_SCREEN_SIZE=\"\${QQNX_PHYSICAL_SCREEN_SIZE:-154,87}\"
 # Target panel size. NOTE: nothing reads these yet -- Main.qml sets its own
 # Window size. They are kept in step so they do not mislead.
 export APP_WIDTH=\"\${APP_WIDTH:-1024}\"
 export APP_HEIGHT=\"\${APP_HEIGHT:-600}\"
-# FONTCONFIG_FILE only matters to a Qt built with fontconfig. This one is not
-# -- libQt6Gui links freetype and nothing else -- so it uses the basic font
-# database, which reads QT_QPA_FONTDIR and otherwise looks in a compiled-in
-# /usr/lib/fonts that does not exist here. Without it every glyph is a box:
-#     QFontDatabase: Cannot find font directory /usr/lib/fonts.
-# Both are set so the launcher keeps working if fontconfig is ever enabled.
+# Which of these two Qt reads depends on how it was built, so both are set.
+# The Qt in ~/qt6-qnx IS built with fontconfig -- readelf -d on libQt6Gui.so.6
+# lists libfontconfig.so.1 -- so FONTCONFIG_FILE is the one that takes effect
+# and QT_QPA_FONTDIR is the fallback for a basic-font-database build. (An older
+# note here claimed the opposite; it was written against a different qtbase.)
+#
+# Either way this points the target's font database at deploy/lib/fonts, and
+# NOTHING ELSE -- so whatever deploy_qt.cmake puts there is the entire set of
+# families the target can resolve by name. It was shipping that directory empty
+# for a long time. The cluster's own type no longer depends on it: Main.qml
+# embeds the typeface through fonts.qrc and loads it with FontLoader, which is
+# what makes the panel and the desktop draw the same glyphs.
 export QT_QPA_FONTDIR=\"$DIR/lib/fonts\"
 export FONTCONFIG_FILE=\"$DIR/lib/fonts/fonts.conf\"
 exec \"$DIR/appCluster\" \"\$@\"

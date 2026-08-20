@@ -1,0 +1,13 @@
+<RCC>
+    <!-- The cluster's own typeface, embedded rather than looked up by name.
+         Main.qml used to ask for "Century Gothic", a Microsoft font that exists
+         on neither the build host nor the QNX target. The desktop quietly
+         substituted Noto Sans through fontconfig; the target substituted
+         whatever it could find in a fonts directory the deploy was shipping
+         empty, so the two ends never agreed on a glyph. Embedding is what makes
+         them agree by construction. See uiFont in Main.qml. -->
+    <qresource prefix="/fonts">
+        <file>fonts/NotoSans-Regular.ttf</file>
+        <file>fonts/NotoSans-Bold.ttf</file>
+    </qresource>
+</RCC>

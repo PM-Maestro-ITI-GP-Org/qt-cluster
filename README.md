@@ -36,6 +36,80 @@ which qcc               # should agree with $QNX_HOST
 cmake --build build-qnx
 ```
 
+### Why it looks wrong on the target
+
+Two things made the RPi5 panel disagree with the desktop, and both were in the
+build rather than in the QML.
+
+**The scene graph backend.** The Qt Quick software adaptation supports neither
+item layers nor shader effects, so under it every `MultiEffect` in `Main.qml`
+draws nothing — and each one is fed by a `visible: false` source that exists
+only to be its input, so what disappears is not an effect over a visible item,
+it is the item. The neon ring baseline, the speed-driven glow, both status
+bands, their icons and the motor fault lamp all vanish; the flat bezel, the
+road, the car and the text stay. That is the whole symptom, and you can
+reproduce it on a desktop:
+
+```bash
+QT_QUICK_BACKEND=software ./build/Desktop_Qt_6_10_3-Debug/deploy/appCluster
+```
+
+`run.sh` used to force `QT_QUICK_BACKEND=software` unconditionally. That was
+correct for the Qt it was written against — a cross-build with no OpenGL, where
+Qt Quick default-selected the Vulkan RHI backend that `QQnxIntegration` has no
+window case for, and qFatal'd on every launch before the window showed. It is
+wrong for a Qt-for-QNX that does have OpenGL, where it strips the panel for no
+reason.
+
+Since this gets built against more than one Qt-for-QNX tree, the line is no
+longer hardcoded either way: `CMakeLists.txt` reads `QT_FEATURE_opengl` from
+the Qt in `Qt6_DIR` and generates the appropriate `run.sh`. Configure prints
+which one you got, and a Qt without OpenGL now produces a loud warning naming
+exactly what will be missing from the panel rather than failing silently.
+
+To check a Qt tree by hand:
+
+```bash
+grep QT_FEATURE_opengl <qt-for-qnx>/include/QtGui/qtgui-config.h
+```
+
+If that is 0, the forcing is doing its job and the fix is to rebuild Qt for QNX
+with OpenGL ES — the generated line then disappears on its own. If it is 1 and
+the panel still comes up black, the remaining variable is on the target: Screen's
+`graphics.conf` has to load the RPi5 v3d driver, and `libEGL.so.1` /
+`libGLESv2.so.1` have to resolve. `QSG_INFO=1` prints the chosen RHI backend.
+
+**The typeface did not exist on either machine.** Every `Text` asked for
+`"Century Gothic"`, which is a Microsoft font; `fc-match "Century Gothic"`
+returns Noto Sans. The desktop substituted quietly and looked fine. The target
+had nothing to substitute *from*: `run.sh` points `FONTCONFIG_FILE` and
+`QT_QPA_FONTDIR` at `deploy/lib/fonts`, and `deploy_qt.cmake` was shipping that
+directory empty, because `FONT_SOURCE_DIR` defaults to `../qt6-qnx-libs/fonts`,
+which is not in every checkout, and a missing font was only a warning.
+
+So the font is embedded now — `fonts/` and `fonts.qrc`, loaded by the two
+`FontLoader`s at the top of `Main.qml` — and nothing refers to a family by
+name any more. To change the cluster's type, drop the files in `fonts/`, list
+them in `fonts.qrc`, and point those two sources at them. `uiFont` picks up the
+family name from the loader. A geometric face (URW Gothic is the free relative
+of the Century Gothic originally asked for) is closer to the intent than what
+ships, if you want it.
+
+`fonts.txt` still deploys the DejaVu set as the target's *fallback* database,
+and now falls back to the host's own font directories to find them.
+
+### A note on QNX_TARGET
+
+`QNX_TARGET` is read from the environment, but the `qt-cmake` toolchain file may
+have already set it to whichever SDP that Qt was built against. When the two
+differ, the recursive deploy searches the wrong sysroot and silently omits
+libraries `libQt6Gui` needs — `libfontconfig`, `libfreetype`, `libpng16`,
+`libjpeg`, `libtiff`. Pass it explicitly if the build warns about those:
+
+```bash
+~/qt6-qnx/bin/qt-cmake -S . -B build-qnx -G Ninja -DCMAKE_BUILD_TYPE=Release -DQNX_TARGET_ARCH=gcc_ntoaarch64le -DQt6_DIR=$HOME/qt6-qnx/lib/cmake/Qt6 -DQNX_TARGET=$QNX_TARGET
+```
+
 ## Colours
 
 Almost everything is one block at the top of `Main.qml`, just under

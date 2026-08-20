@@ -51,6 +51,47 @@ Window {
     readonly property color carTint: "white"
     readonly property real carTintStrength: 0.0
 
+    // --- Typeface ------------------------------------------------------------
+    // Embedded, not looked up by name. Every Text below used to ask for
+    // "Century Gothic" -- a Microsoft font that is on neither the build host
+    // nor the QNX target, so neither machine was ever drawing it:
+    //
+    //   fc-match "Century Gothic"   ->  NotoSans-Regular.ttf
+    //
+    // The host silently substituted through fontconfig and looked fine. The
+    // target had nothing to substitute FROM: run.sh points FONTCONFIG_FILE at
+    // deploy/lib/fonts, and deploy_qt.cmake was shipping that directory empty
+    // (FONT_SOURCE_DIR pointed at ../qt6-qnx-libs/fonts, which does not exist,
+    // and a missing font was only a warning). So the two ends disagreed on
+    // every glyph, which is half of why the panel does not match the desktop.
+    //
+    // Loading the file makes the answer the same on both, with no dependency on
+    // what the image happens to install. The two faces register under one
+    // family, so font.weight still picks between them -- Font.Bold gets the
+    // bold face, and the lighter weights the design asks for (ExtraLight,
+    // Light) resolve to Regular, which is what the desktop was already doing.
+    //
+    // To change the cluster's type, drop the .ttf files in fonts/, list them in
+    // fonts.qrc, and point these two sources at them. Nothing else refers to a
+    // family by name. A geometric face -- URW Gothic is the free relative of
+    // the Century Gothic this originally asked for -- is the closest thing to
+    // the intent, if you would rather have that than what ships here.
+    FontLoader {
+        id: uiFontRegular
+        source: "qrc:/fonts/fonts/NotoSans-Regular.ttf"
+    }
+    FontLoader {
+        id: uiFontBold
+        source: "qrc:/fonts/fonts/NotoSans-Bold.ttf"
+    }
+
+    // The family name the loader reports, which is what Text.font.family wants.
+    // Falls back to the platform default rather than to an empty string if the
+    // resource ever goes missing, so a broken qrc degrades to *a* font instead
+    // of to no text at all.
+    readonly property string uiFont: uiFontRegular.status === FontLoader.Ready
+                                     ? uiFontRegular.font.family : "sans-serif"
+
     // Smoothed backend values, shared by the readouts and the neon glow so the
     // number and the light ramp together instead of snapping between frames.
     // Demo sweep, active only when CLUSTER_DEMO is set in the environment (see
@@ -675,7 +716,7 @@ Window {
             text: root.scaleValues[index]
             color: root.scaleColor
             font.pixelSize: root.artUnitH * 0.032
-            font.family: "Century Gothic"
+            font.family: root.uiFont
             x: root.artX + root.artW * (root.scaleLX[index] + root.scaleInsetX) - width / 2
             y: root.artY + root.artH * root.scaleY[index] - height / 2
         }
@@ -703,7 +744,7 @@ Window {
             text: root.scaleValuesRight[index]
             color: root.scaleColor
             font.pixelSize: root.artUnitH * 0.032
-            font.family: "Century Gothic"
+            font.family: root.uiFont
 
             // Width of the left-hand label at the same position. The right
             // numbers are one digit while the left run to three, so mirroring
@@ -1324,7 +1365,7 @@ Window {
         text: root.errorCode
         color: root.faultColor
         font.pixelSize: root.artUnitH * 0.034
-        font.family: "Century Gothic"
+        font.family: root.uiFont
         font.weight: Font.Light
         font.letterSpacing: 3
         visible: root.errorCode !== ""
@@ -1376,7 +1417,7 @@ Window {
                 font.pixelSize: root.artUnitH * 0.055
                 font.weight: modelData === root.gear ? Font.Bold : Font.Light
                 font.letterSpacing: 1
-                font.family: "Century Gothic"
+                font.family: root.uiFont
             }
         }
     }
@@ -1403,7 +1444,7 @@ Window {
             color: root.textColor
             font.pixelSize: screen.unitH * 0.28
             font.weight: Font.ExtraLight
-            font.family: "Century Gothic"
+            font.family: root.uiFont
         }
         Text {
             id: unitText
@@ -1415,7 +1456,7 @@ Window {
             font.pixelSize: screen.unitH * 0.07
             font.weight: Font.Bold
             font.letterSpacing: 5
-            font.family: "Century Gothic"
+            font.family: root.uiFont
         }
         Text {
             id: cap
@@ -1427,7 +1468,7 @@ Window {
             opacity: 0.45
             font.pixelSize: screen.unitH * 0.045
             font.letterSpacing: 3
-            font.family: "Century Gothic"
+            font.family: root.uiFont
         }
     }
 
@@ -1484,7 +1525,7 @@ Window {
             color: root.textColor
             opacity: 0.85
             font.pixelSize: root.artUnitH * 0.030
-            font.family: "Century Gothic"
+            font.family: root.uiFont
             font.weight: Font.Light
         }
 
@@ -1495,7 +1536,7 @@ Window {
             color: root.textColor
             opacity: 0.45
             font.pixelSize: trackName.font.pixelSize
-            font.family: "Century Gothic"
+            font.family: root.uiFont
             font.weight: Font.Light
             font.letterSpacing: 1
         }
@@ -1539,7 +1580,7 @@ Window {
                 text: Clock.synced ? Clock.time : "--:--"
                 color: root.textColor
                 font.pixelSize: screen.unitH * 0.09
-                font.family: "Century Gothic"
+                font.family: root.uiFont
                 font.weight: Font.Light
                 font.letterSpacing: 2
             }
@@ -1549,7 +1590,7 @@ Window {
                 // Smaller and top-aligned against the digits, the way a
                 // meridiem marker is normally set.
                 font.pixelSize: screen.unitH * 0.045
-                font.family: "Century Gothic"
+                font.family: root.uiFont
                 font.weight: Font.Light
                 font.letterSpacing: 1
                 anchors.top: parent.top
