@@ -726,9 +726,9 @@ Window {
     // and there is no odometer at all. Bound so they light up correctly once
     // there is something behind them; the demo values just make the layout
     // legible without hardware.
-    // Demo only: one 0..1 ramp driving both status bands, so every fill level
-    // gets shown. Slower than the speed sweep on purpose — these are 11-segment
-    // meters and a fast ramp just flickers between steps.
+    // Demo only, and now only for the health band: one 0..1 ramp, so every
+    // fill level gets shown. Slower than the speed sweep on purpose — these
+    // are 11-segment meters and a fast ramp just flickers between steps.
     property real demoLevel: 0
 
     SequentialAnimation on demoLevel {
@@ -750,9 +750,28 @@ Window {
         }
     }
 
-    // Charge only. The odometer went with the KM TOTAL readout — it had no
-    // backend behind it either way, VehicleBackend has no odometer at all.
-    readonly property real soc: demoMode ? root.demoLevel * 100 : Vehicle.battery
+    // Charge. There is no SOC sensor on the v4 wire and VehicleBackend::battery()
+    // reads 0 forever, which left the left-hand band permanently empty on real
+    // hardware. Rather than show a dead meter, this ticks a discharge cycle on
+    // its own: starts full, counts down to empty, then starts over. It is a
+    // placeholder for a real SOC signal, not a measurement -- replace with
+    // Vehicle.battery the day one exists.
+    property real batteryLevel: 100
+
+    Timer {
+        interval: 1200
+        running: true
+        repeat: true
+        onTriggered: {
+            root.batteryLevel -= 1;
+            if (root.batteryLevel <= 0)
+                root.batteryLevel = 100;
+        }
+    }
+
+    // The odometer went with the KM TOTAL readout — it had no backend behind
+    // it either way, VehicleBackend has no odometer at all.
+    readonly property real soc: root.batteryLevel
 
     // What the right-hand band shows: 1 is full margin to every measured limit,
     // 0 is at one of them. VehicleBackend::health composes it; see the note
