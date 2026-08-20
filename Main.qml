@@ -1189,12 +1189,14 @@ Window {
     // disagreement back into the normal case before either reaches here), so
     // there is no case left where aiAlert is true and this falls through
     // empty.
+    // Codes follow the same family scheme the sensor-driven codes used before
+    // the AI verdict replaced them: 2x electrical, 3x mechanical.
     readonly property var errorFault: {
         const cls = Vehicle.aiFaultClass.trim().toLowerCase();
         if (cls === "mechanical")
-            return { kind: "MECHANICAL", code: "E-90" };
+            return { kind: "MECHANICAL", code: "E-31" };
         if (cls === "electrical")
-            return { kind: "ELECTRICAL", code: "E-90" };
+            return { kind: "ELECTRICAL", code: "E-21" };
         return { kind: "", code: "" };
     }
     readonly property string errorKind: root.errorFault.kind
@@ -1292,41 +1294,6 @@ Window {
         smooth: true
         mipmap: true
         visible: root.errorIcon !== "" && carTop.visible
-    }
-
-    // --- AI verdict -----------------------------------------------------------
-    // What the model actually said, in the strip above the clock the now-playing
-    // row used to occupy. The error code below can only say that something is
-    // wrong; this is the only place the reason appears.
-    //
-    // The fault class is preferred over the anomaly verdict: an anomaly result
-    // says a window looked unusual, a class says what it looked like. Falls back
-    // to the anomaly text when there is no class.
-    //
-    // Steady, not blinking. It is a sentence to read, and the code beside the
-    // car is already doing the attention-getting.
-    readonly property string aiVerdict: {
-        if (!Vehicle.aiAlert)
-            return "";
-        const cls = Vehicle.aiFaultClass.trim();
-        return cls !== "" ? cls : Vehicle.aiAnomaly.trim();
-    }
-
-    Text {
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: root.artY + root.artH * root.trackY - height / 2
-        // Capped like the track title was, so a long verdict elides rather than
-        // running out under the telltales in the corners.
-        width: Math.min(implicitWidth, root.artW * 0.34)
-        elide: Text.ElideRight
-        text: root.aiVerdict
-        color: root.faultColor
-        opacity: 0.9
-        font.pixelSize: root.artUnitH * 0.030
-        font.family: "Century Gothic"
-        font.weight: Font.Light
-        font.letterSpacing: 1
-        visible: root.aiVerdict !== ""
     }
 
     // --- Error code ----------------------------------------------------------
