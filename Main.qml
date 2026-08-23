@@ -431,13 +431,21 @@ Window {
     // Speed -> scroll. Proportional, with no cap: the ring saturates at the top
     // of the scale and the road should not, or the last 100 km/h would look the
     // same as the first.
-    readonly property real roadSpeedRef: 120      // km/h ...
-    readonly property real roadRateMax: 1.1       // ... at this many patterns/second
+    // Full scroll rate at full scale, and full scale is the MOTOR's, taken from
+    // the backend rather than written here. SPEED_MAX_KMH is 60 on this rig --
+    // 790 rpm through KMH_PER_RPM -- so a hardcoded 120 made the road crawl at
+    // half rate with the throttle wide open, and no value would have been right
+    // for a different motor. Same reason scaleValues is generated from
+    // Vehicle.speedMax instead of being a hardcoded 0..240.
+    readonly property real roadSpeedRef: Vehicle.speedMax
+    readonly property real roadRateMax: 1.1       // patterns/second at full scale
     readonly property real roadRate: root.roadRateMax * live.speed / root.roadSpeedRef
 
-    // Faded in with speed, so at a standstill these do not exist and the artwork
-    // is exactly what it always was. Full by 8 km/h.
-    readonly property real roadMotionOpacity: Math.max(0, Math.min(1, live.speed / 8)) * 0.34
+    // Faded in over the bottom eighth of the scale, so a standstill leaves the
+    // artwork exactly as it was and a crawl does not strobe. A fraction of the
+    // scale rather than a fixed km/h, for the same reason as above.
+    readonly property real roadFadeSpeed: Vehicle.speedMax * 0.12
+    readonly property real roadMotionOpacity: Math.max(0, Math.min(1, live.speed / root.roadFadeSpeed)) * 0.34
 
     property real roadPhase: 0
 
@@ -452,7 +460,7 @@ Window {
     readonly property real carShakeHz: 3          // cycles per road pattern
     readonly property real carShake: root.artUnitH * root.carShakeAmp
                                      * Math.sin(root.roadPhase * 2 * Math.PI * root.carShakeHz)
-                                     * Math.max(0, Math.min(1, live.speed / 8))
+                                     * Math.max(0, Math.min(1, live.speed / root.roadFadeSpeed))
 
     // A phase accumulator rather than a looping NumberAnimation on purpose. An
     // animation latches its duration for the whole loop, so a speed change would
