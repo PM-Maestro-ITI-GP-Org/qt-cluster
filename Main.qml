@@ -68,7 +68,25 @@ Window {
     //
     // speedWarning is left out on purpose, matching why it is absent from
     // criticalAlert -- see SPEED_WARN_RPM in cluster.h.
-    readonly property int faultLevel: Vehicle.criticalAlert ? 2
+    // The severity the AI side actually publishes. It is not a field -- it is the
+    // word "critical" appended to fault_class, which is how fault_tester and the
+    // model both mark an urgent fault:
+    //
+    //     electrical_fault              advisory
+    //     electrical_fault critical     urgent
+    //     mechanical_fault              advisory
+    //     bearing_fault critical        urgent
+    //
+    // Read off the live /motor_fault_override region on the target. An earlier
+    // version of this file asserted the AI carried no severity at all and made
+    // level 2 reachable only through criticalAlert -- which comes from measured
+    // vibration and current, and which an injected fault cannot set. The effect
+    // was that NO injected fault could ever go red, however urgent: every one
+    // of them showed amber. This is that assertion corrected.
+    readonly property bool aiCritical: Vehicle.aiFaultClass.toLowerCase().indexOf("critical") !== -1
+                                       || Vehicle.aiAnomaly.toLowerCase().indexOf("critical") !== -1
+
+    readonly property int faultLevel: (Vehicle.criticalAlert || root.aiCritical) ? 2
                                     : (Vehicle.aiAlert || Vehicle.vibWarning
                                        || Vehicle.currentWarning) ? 1 : 0
 
@@ -959,19 +977,32 @@ Window {
         if (v < 0)                       // past due reads as none left
             return 0;
 
-        // Scale by the unit word FOLLOWING the number, not by any unit word in
-        // the string -- for the same reason. "(provisional)" and anything else
-        // trailing is ignored.
+        // Scale by the FIRST WORD after the number, not by any unit word found
+        // anywhere -- for the same reason, and so "(provisional)" and any
+        // trailing prose are ignored.
+        //
+        // Matched by prefix because the unit is not spelled consistently. The
+        // live publishers send both of these:
+        //
+        //     "RUL: 12 h"                                    (fault_tester)
+        //     "healthy, health 1.00, RUL 4.00 months (...)"  (the model)
+        //
+        // and a bare "h" is the common case on the urgent faults. Testing for
+        // "hour"/"hr" missed it, so 12 hours of bearing life was read as 12
+        // DAYS and drew a tenth-full band where it should have been at the
+        // floor. Wrong, and wrong on exactly the fault that matters most.
         const after = tail.substring(m.index + m[0].length);
-        if (after.indexOf("month") !== -1)
+        const mu = after.match(/[a-z]+/);
+        const u = mu ? mu[0] : "";       // "h", "hrs", "months", "days", ""
+        if (u.indexOf("mo") === 0)
             v *= 30;
-        else if (after.indexOf("week") !== -1)
-            v *= 7;
-        else if (after.indexOf("hour") !== -1 || after.indexOf("hr") !== -1)
-            v /= 24;
-        else if (after.indexOf("min") !== -1)
+        else if (u.indexOf("mi") === 0)
             v /= 1440;
-        return v;                        // bare number, or "day(s)", already days
+        else if (u.indexOf("w") === 0)
+            v *= 7;
+        else if (u.indexOf("h") === 0)
+            v /= 24;
+        return v;                        // "d", "day(s)" or no unit: already days
     }
 
     // -1 when there is no reading, which is what the fallback below tests.
@@ -1468,12 +1499,39 @@ Window {
     // true (the car still swaps to the overhead view) with no icon or code to
     // go with it, which is worse than matching loosely.
     readonly property var errorFault: {
+        // Keyed off aiAlert, not off the class string, and that is the whole
+        // point: whenever a fault is RAISED this returns something to draw.
+        //
+        // It used to match only "mechanical" and "electrical" and return empty
+        // otherwise. The live vocabulary is not those two words -- an urgent
+        // mechanical fault publishes "bearing_fault critical", which matched
+        // neither. aiAlert still went true (the class is not benign), so fault
+        // mode engaged: the road dropped away and the overhead car appeared,
+        // while the code, the kind label and the motor lamp -- all gated on
+        // errorKind -- stayed hidden. A fault view with nothing on it, which is
+        // worse than no fault view at all. Seen on the target.
+        if (!Vehicle.aiAlert)
+            return { kind: "", code: "" };
+
         const cls = Vehicle.aiFaultClass.trim().toLowerCase();
-        if (cls.indexOf("mechanical") !== -1)
-            return { kind: "MECHANICAL", code: "E-31" };
         if (cls.indexOf("electrical") !== -1)
             return { kind: "ELECTRICAL", code: "E-21" };
-        return { kind: "", code: "" };
+
+        // The mechanical family by the words it actually uses. Extend this list
+        // rather than the generic case when a new one turns up -- landing here
+        // is what gets the right icon and the 3x code.
+        const mech = ["mechanical", "bearing", "rotor", "shaft", "gear",
+                      "imbalance", "misalign", "vibration"];
+        for (let i = 0; i < mech.length; ++i)
+            if (cls.indexOf(mech[i]) !== -1)
+                return { kind: "MECHANICAL", code: "E-31" };
+
+        // Anything else raised but unrecognised. Deliberately vague rather than
+        // guessed: E-01 sits outside the 2x/3x families precisely because it
+        // claims no family. There is no icon for it, so the lamp lights plain --
+        // the code and the word still say a fault is up and roughly nothing
+        // more, which is the honest reading of a string we do not know.
+        return { kind: "FAULT", code: "E-01" };
     }
     readonly property string errorKind: root.errorFault.kind
     readonly property string errorCode: root.errorFault.code
