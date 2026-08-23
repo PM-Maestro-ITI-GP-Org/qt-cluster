@@ -39,6 +39,53 @@ Window {
     readonly property color scaleColor: "#8ea3ba"   // the 0..240 / 0..6 numbers
     readonly property color gearIdleColor: "#4c5c70" // the gears not selected
     readonly property color faultColor: "#ff2b2b"   // motor lamp, code and banner
+    // Caution, as against faultColor's stop-now. Amber and red are the two the
+    // driver already reads without being taught them, which is the whole reason
+    // severity is carried as a hue rather than as a word: "CRITICAL" spelled out
+    // is slower to read at 7" than a colour is, and this cluster is numerals
+    // only by design.
+    readonly property color warnColor: "#ffb020"
+
+    // --- Fault severity ------------------------------------------------------
+    // 0 nothing, 1 caution, 2 critical. Nothing new is measured for this --
+    // every input already existed on VehicleBackend and simply had nothing
+    // bound to it:
+    //
+    //   criticalAlert   vibration past VIB_CRIT_G (0.60g, double the warn
+    //                   threshold) or current past 1.5x CURRENT_WARN_A. A
+    //                   genuine two-level distinction, from sensors.
+    //   vibWarning      the same two limits at their first threshold.
+    //   currentWarning
+    //   aiAlert         the model's verdict, which carries NO severity of its
+    //                   own -- aiFaultClass is free text and AI_ALERT_HEALTH
+    //                   clamps health to a flat 0.35 however bad the fault is.
+    //
+    // So an AI verdict enters at caution and only the measured limits can
+    // escalate it. That is a deliberate floor, not a guess dressed up as one:
+    // promoting a fault to critical needs evidence, and the AI side does not
+    // supply any yet. Give the shm contract a severity field and this is the
+    // one place that has to change.
+    //
+    // speedWarning is left out on purpose, matching why it is absent from
+    // criticalAlert -- see SPEED_WARN_RPM in cluster.h.
+    readonly property int faultLevel: Vehicle.criticalAlert ? 2
+                                    : (Vehicle.aiAlert || Vehicle.vibWarning
+                                       || Vehicle.currentWarning) ? 1 : 0
+
+    // Severity is carried TWICE, colour and rhythm, the way the health band
+    // carries its reading as both length and colour. Two channels because one
+    // of them fails in the real cabin: amber and red are hard to separate on a
+    // 7" panel in direct sun, and the blink rate still reads when the hue does
+    // not.
+    readonly property color severityColor: root.faultLevel >= 2 ? root.faultColor
+                                                                : root.warnColor
+    // The code blink. 260ms was the old single rate; it now means critical, and
+    // caution gets a slower one that reads as insistent rather than urgent.
+    readonly property int severityBlinkMs: root.faultLevel >= 2 ? 260 : 600
+    // The lamp breathe under the car. Deliberately slower than the code at both
+    // levels -- it is a wash of light over the whole car, and at the code's rate
+    // it strobes.
+    readonly property int severityLampMs: root.faultLevel >= 2 ? 350 : 700
     // The overhead road drawn in fault mode. Sampled off the rails in
     // cluster_road.png at their brightest, so the two roads are the same colour
     // and the swap does not read as a change of scene.
@@ -208,6 +255,11 @@ Window {
     // fully visible up to a scale of about 1.29 — which is not enough to fill
     // a 1.71:1 panel with 2.29:1 artwork, so the height is stretched instead.
     //
+    // It also sets how big everything overlaid is drawn, through artUnitH, so
+    // it is the knob that grows the numerals and icons along with the bezel.
+    // Raising it alone does nothing to the vertical margins: those are artH's
+    // job, and artFill below is what moves them.
+    //
     // Two heights, and the difference is the whole trick:
     //
     //   artH      what the artwork is drawn at, so it fills the panel.
@@ -219,13 +271,44 @@ Window {
     // both cars — and measuring them against a stretched height would make them
     // proportionally wider too. That widening is what would wreck the layout;
     // the stretch itself only touches the three artwork layers.
-    readonly property real bezelScale: 1.18
+    readonly property real bezelScale: 1.22
     readonly property real artW: width * bezelScale
     readonly property real artUnitH: artW * (447 / 1024)
-    readonly property real artH: height
     readonly property real artX: (width - artW) / 2
-    readonly property real artY: (height - artH) / 2
-    // ~1.14 at 1024x600. Drop artH back to artUnitH to undo the stretch.
+
+    // --- Vertical fit --------------------------------------------------------
+    // artH used to be exactly `height`, which left the artwork's visible band
+    // sitting at y 137..542 of 600: 137px of dead space above it and only 58
+    // below. The imbalance is not a centring bug, it is where the lit lens sits
+    // inside its own source image -- the band occupies 0.228..0.903 of the
+    // artwork's height, which is off-centre by the artwork's own construction.
+    //
+    // Two knobs, and they do different jobs:
+    //
+    //   artFill   how much taller than the window to draw the artwork. Above 1
+    //             the band grows and the margins close up. It costs vertical
+    //             stretch -- the artwork is 2.29:1 against a 1.71:1 panel, so
+    //             there is no scale that fills the height without stretching
+    //             (bezelScale cannot do it: widening past ~1.29 runs the ring
+    //             off the sides, see the note above). bezelStretch below is the
+    //             number to watch.
+    //
+    //   artTopBias  which end the overflow comes off. 0.5 centres the band and
+    //             leaves the two margins equal; above 0.5 takes more off the
+    //             top, which is what closes the gap the eye actually notices.
+    //
+    // Everything overlaid tracks this automatically -- POSITIONS are fractions
+    // of artH and are offset by artY, so the scale numbers, the readouts, the
+    // gear row and both cars move with the artwork rather than needing their
+    // own tables refitted. SIZES stay fractions of artUnitH, so the stretch
+    // does not make glyphs wider; bezelScale is what grows those.
+    readonly property real artFill: 1.20
+    readonly property real artTopBias: 0.75
+    readonly property real artH: height * artFill
+    readonly property real artY: -(artH - height) * artTopBias
+    // ~1.32 at 1024x600, up from ~1.14 when artH was exactly `height`. That rise
+    // is the cost of closing the top margin: see artFill above for why nothing
+    // else can. Set artFill to 1 and artTopBias to 0.5 to get the old fit back.
     readonly property real bezelStretch: artH / artUnitH
 
     Image {
@@ -927,10 +1010,15 @@ Window {
     // the band on the way to a warning.
     //
     // The dark end is the point of the last stop: at zero margin the band goes
-    // near-black red rather than bright red. A bright bar reads as a bar that
-    // is *on*; the reading here is that almost nothing is left.
+    // deep red rather than bright red. A bright bar reads as a bar that is
+    // *on*; the reading here is that almost nothing is left.
+    //
+    // Raised from rgba(0.30, 0.02, 0.02) -- RGB(77,5,5), which was so close to
+    // the bezel behind it that the one segment left at zero could not be seen
+    // at all. The intent was right and the value was past it: this still reads
+    // as depleted, and survives a panel in daylight.
     readonly property var healthStops: [
-        { t: 0.00, c: Qt.rgba(0.30, 0.02, 0.02, 1) },
+        { t: 0.00, c: Qt.rgba(0.55, 0.06, 0.06, 1) },
         { t: 0.30, c: Qt.rgba(0.92, 0.13, 0.13, 1) },
         { t: 0.50, c: Qt.darker(root.accent, 1.45) },
         { t: 1.00, c: root.accent }
@@ -984,8 +1072,54 @@ Window {
         property real side: -1               // -1 left, +1 right
         property alias icon: iconImage.source
 
-        readonly property int litCount: Math.round(Math.max(0, Math.min(1, sb.fraction))
-                                                   * root.statusSegments)
+        // Opt-in, because the two bands mean different things by empty. The
+        // charge band means empty: a lone segment left lit at 0% SOC would read
+        // as "some charge left", which is worse than blank. Health means the
+        // opposite -- zero is a READING, the motor sitting on one of its
+        // limits, and Math.round takes it to no segments at all below 1/22
+        // (0.0455). Everything under that drew an entirely idle band, which is
+        // what an unpowered band looks like, at exactly the reading that most
+        // needs to be seen. evaluateHealth() takes health to zero on the same
+        // thresholds that raise criticalAlert, so it is reachable.
+        property bool lightAtZero: false
+
+        // What the reading alone asks for, before lightAtZero has a say.
+        readonly property int rawLit: Math.round(Math.max(0, Math.min(1, sb.fraction))
+                                                 * root.statusSegments)
+        readonly property int litCount: (sb.lightAtZero && sb.rawLit < 1) ? 1 : sb.rawLit
+
+        // True only for the segment lightAtZero rescued -- the band is pegged at
+        // the bottom of its scale, not merely low. Steady red says "nearly
+        // nothing left"; this says "at the limit now", which is a different
+        // reading and deserves to be told apart at a glance.
+        readonly property bool atLimit: sb.lightAtZero && sb.rawLit < 1
+
+        // A multiplier rather than an animation on the segment's own opacity.
+        // `opacity` there is already a binding (lit vs idle) with a Behavior on
+        // it, and `SequentialAnimation on opacity` would seize the property and
+        // break both -- the same trap the notes on `live` and on the colour
+        // Behavior below warn about. Pulsing a separate number and multiplying
+        // it in leaves the binding intact.
+        property real limitPulse: 1.0
+
+        SequentialAnimation on limitPulse {
+            running: sb.atLimit
+            loops: Animation.Infinite
+            // Shares the fault code's rate, so everything urgent on the panel
+            // is beating together rather than at rates that fight. In practice
+            // this is always the critical 260ms: health only reaches zero when
+            // vibration or current is past the threshold that raises
+            // criticalAlert, which puts faultLevel at 2.
+            NumberAnimation {
+                to: 0.25
+                duration: root.severityBlinkMs
+            }
+            NumberAnimation {
+                to: 1.0
+                duration: root.severityBlinkMs
+            }
+            onStopped: sb.limitPulse = 1.0
+        }
 
         anchors.fill: parent
 
@@ -1037,7 +1171,8 @@ Window {
                     y: root.artH * root.statusSegCY[index] - height / 2
                     rotation: sb.side < 0 ? root.statusSegAngle : -root.statusSegAngle
                     color: seg.lit ? sb.fillColor : root.statusIdleColor
-                    opacity: seg.lit ? 1.0 : root.statusIdleOpacity
+                    opacity: (seg.lit ? 1.0 : root.statusIdleOpacity)
+                             * (seg.lit && sb.atLimit ? sb.limitPulse : 1.0)
 
                     // Opacity only. `lit` is a discrete flip, so a Behavior
                     // fades a segment in cleanly.
@@ -1051,7 +1186,12 @@ Window {
                     // was correctly reporting dark red. Same trap the note on
                     // `live` warns about. The ramp is already smooth because
                     // its input is.
+                    //
+                    // Off while this segment is pulsing: the Behavior would
+                    // intercept every step of the pulse and damp a 260ms beat
+                    // through a 260ms fade, smearing it into a dim flicker.
                     Behavior on opacity {
+                        enabled: !(seg.lit && sb.atLimit)
                         NumberAnimation {
                             duration: root.statusFadeMs
                         }
@@ -1124,6 +1264,8 @@ Window {
     StatusBar {
         side: 1
         fraction: root.healthFrac
+        // See lightAtZero: zero margin has to stay visible, unlike zero charge.
+        lightAtZero: true
         icon: "qrc:/images/images/icon_health.svg"
         // Carries the reading twice — length and colour — so a glance catches
         // it without counting bars. See healthColorAt for the ramp.
@@ -1282,7 +1424,7 @@ Window {
             width: parent.width * 0.52
             height: width
             radius: width / 2
-            color: root.faultColor
+            color: root.severityColor
         }
     }
 
@@ -1309,12 +1451,12 @@ Window {
             loops: Animation.Infinite
             NumberAnimation {
                 to: 0.35
-                duration: 700
+                duration: root.severityLampMs
                 easing.type: Easing.InOutSine
             }
             NumberAnimation {
                 to: 0.75
-                duration: 700
+                duration: root.severityLampMs
                 easing.type: Easing.InOutSine
             }
             onStopped: motorGlow.opacity = 0.75
@@ -1363,7 +1505,7 @@ Window {
         anchors.horizontalCenter: parent.horizontalCenter
         y: root.artY + root.artH * root.errorCodeY - height / 2
         text: root.errorCode
-        color: root.faultColor
+        color: root.severityColor
         font.pixelSize: root.artUnitH * 0.034
         font.family: root.uiFont
         font.weight: Font.Light
@@ -1375,14 +1517,54 @@ Window {
             loops: Animation.Infinite
             NumberAnimation {
                 to: 0.2
-                duration: 260
+                duration: root.severityBlinkMs
             }
             NumberAnimation {
                 to: 1.0
-                duration: 260
+                duration: root.severityBlinkMs
             }
             onStopped: errorCodeText.opacity = 1.0
         }
+    }
+
+    // --- Fault kind ----------------------------------------------------------
+    // The word under the code. errorKind has been computed since fault mode was
+    // written and never drawn -- the note above it says "the kind of fault named
+    // above the car", so the label was intended and got lost.
+    //
+    // It says the KIND, not the severity, and the two are split across different
+    // channels on purpose. Severity is already carried twice, as colour and as
+    // blink rate; spelling "CRITICAL" here would be the same bit a third time,
+    // spending the only line of space there is to repeat something. The kind is
+    // the thing neither colour nor rhythm can express -- and it is what makes
+    // E-31 mean anything without knowing that 2x is electrical and 3x is
+    // mechanical.
+    //
+    // Coloured by severity, so one row carries both: subsystem as text, severity
+    // as hue. That also covers the case the hue alone does not -- amber against
+    // red is the exact pair the commonest colour blindness collapses, and the
+    // word survives it.
+    //
+    // STEADY while the code blinks above it, for the same reason the motor
+    // symbol is steady while its lamp breathes: pulsing both makes the thing
+    // hard to read at exactly the moment it matters.
+    //
+    // Sized off artUnitH like the code, so it does not widen with the stretch.
+    // 0.026 against the code's 0.034 keeps it clearly subordinate; the wider
+    // letterSpacing matches how SPEED and POWER are set under their numerals.
+    readonly property real errorKindGap: 0.012   // fraction of artUnitH, below the code
+
+    Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: errorCodeText.y + errorCodeText.height + root.artUnitH * root.errorKindGap
+        text: root.errorKind
+        color: root.severityColor
+        opacity: 0.9
+        font.pixelSize: root.artUnitH * 0.026
+        font.family: root.uiFont
+        font.weight: Font.Light
+        font.letterSpacing: 4
+        visible: root.errorKind !== ""
     }
 
     // --- Gear indicator ------------------------------------------------------
@@ -1408,9 +1590,14 @@ Window {
         spacing: root.artW * 0.028
 
         Repeater {
-            // Order as requested. Note this is not the PRND of a real selector
-            // gate — worth revisiting if this ever has to match a physical lever.
-            model: ["P", "D", "N", "R"]
+            // PRND, the order of a real selector gate, and the one every driver
+            // has read since the 1960s. It was P D N R here, which is not an
+            // order any gate produces: it puts D next to P, a transition no
+            // lever can make without passing through R and N. The row is only a
+            // legend -- gear is inferred from speed and R and N cannot light --
+            // but a legend that contradicts the lever beside it is worse than no
+            // legend, and it costs nothing to have it agree.
+            model: ["P", "R", "N", "D"]
             delegate: Text {
                 text: modelData
                 color: modelData === root.gear ? root.textColor : root.gearIdleColor
