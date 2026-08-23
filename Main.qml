@@ -908,7 +908,92 @@ Window {
     //
     // This band used to show motor temperature. Nothing measures temperature on
     // the v4 wire, so on hardware it read 0 and never moved.
-    readonly property real healthFrac: demoMode ? 1 - root.demoLevel : Vehicle.health
+
+    // --- Remaining useful life -----------------------------------------------
+    // The band now reads RUL -- the third of the three values the AI publishes,
+    // pred_maint_result, which has been exposed as Vehicle.aiPredMaint since
+    // AiReader was written and never displayed. Full band is a full service
+    // interval ahead; empty is due now.
+    //
+    // Four months, as days. It is the denominator of the whole reading, so it is
+    // a named constant rather than a literal in the expression -- change the
+    // service interval here and the band follows. 30-day months: the figure is a
+    // maintenance window, not a calendar date, and 121.75 would imply a precision
+    // the model's output does not have.
+    readonly property real rulFullDays: 120
+
+    // pred_maint_result is FREE TEXT. Nothing in this project owns its
+    // vocabulary -- same problem aiFaultClass has, and solved the same loose way
+    // (see errorFault): take the first number in the string, then let a unit
+    // word rescale it if one is there. A bare number is read as days, which is
+    // the unit the field is expected to carry.
+    //
+    // Returns -1 for "no usable reading" rather than 0. Those are different: 0
+    // is a real RUL that must alarm, and an empty or unparseable string must not
+    // be shown as one. An AI that has said nothing yet is not a motor that is
+    // out of life.
+    readonly property real rulDays: {
+        const s = Vehicle.aiPredMaint.trim().toLowerCase();
+        if (s === "")
+            return -1;
+
+        // Anchor on the word "rul", do not just take the first number in the
+        // string. The real publisher sends more than one figure:
+        //
+        //     "healthy, health 1.00, RUL 4.00 months (provisional)"
+        //
+        // and the first number there is the HEALTH score, not the life. Reading
+        // it gave 1 x 30 = 30 days against a 120-day interval -- a quarter-full
+        // band on a motor with a full service interval ahead of it, which is
+        // both wrong and wrong in the dangerous direction. Confirmed against the
+        // live /motor_ai_result region on the target.
+        const i = s.indexOf("rul");
+        const tail = i !== -1 ? s.substring(i + 3) : s;
+
+        const m = tail.match(/-?\d+(\.\d+)?/);
+        if (!m)
+            return -1;
+        let v = parseFloat(m[0]);
+        if (!isFinite(v))
+            return -1;
+        if (v < 0)                       // past due reads as none left
+            return 0;
+
+        // Scale by the unit word FOLLOWING the number, not by any unit word in
+        // the string -- for the same reason. "(provisional)" and anything else
+        // trailing is ignored.
+        const after = tail.substring(m.index + m[0].length);
+        if (after.indexOf("month") !== -1)
+            v *= 30;
+        else if (after.indexOf("week") !== -1)
+            v *= 7;
+        else if (after.indexOf("hour") !== -1 || after.indexOf("hr") !== -1)
+            v /= 24;
+        else if (after.indexOf("min") !== -1)
+            v /= 1440;
+        return v;                        // bare number, or "day(s)", already days
+    }
+
+    // -1 when there is no reading, which is what the fallback below tests.
+    readonly property real rulFrac: root.rulDays < 0
+                                    ? -1
+                                    : Math.max(0, Math.min(1, root.rulDays / root.rulFullDays))
+
+    // Falls back to VehicleBackend::health whenever the AI has published no
+    // usable RUL -- which is most of the time on the bench, and always before
+    // the first verdict lands. Showing a full band there would claim a service
+    // interval nobody measured; showing an empty one would alarm on silence.
+    // The measured margin is the honest thing to show in the gap.
+    //
+    // Note what this costs while RUL IS present: the vibration and current
+    // margins stop being displayed here, and so does the AI_ALERT_HEALTH clamp.
+    // If you would rather the band always show the worse of the two, make this
+    // Math.min(root.rulFrac, Vehicle.health) -- one line, and the ramp, the
+    // lightAtZero floor and the at-limit pulse all keep working unchanged.
+    readonly property real healthFrac: demoMode
+                                       ? 1 - root.demoLevel
+                                       : root.rulFrac >= 0 ? root.rulFrac
+                                                           : Vehicle.health
 
     // The SOC and KM TOTAL readouts that used to sit at bottomRowY are gone; the
     // status bands carry charge now, and there was never an odometer to read.
@@ -1258,9 +1343,11 @@ Window {
         icon: "qrc:/images/images/icon_battery.svg"
     }
 
-    // Health, not temperature. The band used to show motor temperature, which
-    // has no sensor and so read 0 forever on hardware; VehicleBackend::health
-    // is the margin to whichever measured limit is closest. Full is good.
+    // Remaining useful life, from the AI's pred_maint_result over a four-month
+    // service interval -- see rulDays and rulFullDays. Falls back to
+    // VehicleBackend::health, the margin to whichever measured limit is closest,
+    // whenever no RUL has been published. Full is good either way, so the ramp
+    // and the icon carry over unchanged.
     StatusBar {
         side: 1
         fraction: root.healthFrac

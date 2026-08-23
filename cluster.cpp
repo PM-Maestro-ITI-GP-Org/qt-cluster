@@ -394,7 +394,28 @@ void VehicleBackend::onAiResults(AiResults results)
  * model's verdict. */
 void VehicleBackend::evaluateHealth()
 {
-    const float vibFrac = qnx_clamp(std::abs(m_vibTotal - 1.f) / VIB_CRIT_G, 0.f, 1.f);
+    /* The same quantity evaluateWarnings() measures, for the same two reasons
+     * spelled out there, neither of which was ever applied here:
+     *
+     *   - m_vibTotal is ALREADY gravity-free. This read
+     *     abs(m_vibTotal - 1.f), the correction from back when it carried
+     *     gravity, which became a double subtraction when that changed: a
+     *     still motor came out as abs(0 - 1) = 1.0g, saturating vibFrac and
+     *     driving health to 0. It was not visible until something CALLED this
+     *     -- m_health starts at 1.0 and only an SPI frame or an AI verdict
+     *     moves it -- so on the bench the band read full until the first
+     *     verdict landed and then collapsed to empty.
+     *
+     *   - a short RMS, not one sample. Peak-to-RMS is about 4x on this rig, so
+     *     the instantaneous magnitude crosses the limits on a healthy machine.
+     *
+     * The warm-up guard comes with it: until the DC vector has settled, the
+     * startup transient is larger than any real vibration, and asserting a
+     * limit against it reports a fault that is an artefact. */
+    const bool  vibReady   = m_gravityN > VIB_WARMUP_SAMPLES;
+    const float vibDynamic = vibReady ? std::sqrt(m_vibMeanSq) : 0.f;
+
+    const float vibFrac = qnx_clamp(vibDynamic / VIB_CRIT_G, 0.f, 1.f);
     const float curFrac = qnx_clamp(m_currentRms / (CURRENT_WARN_A * 1.5f), 0.f, 1.f);
 
     float h = 1.f - std::max(vibFrac, curFrac);
