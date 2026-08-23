@@ -50,6 +50,14 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(
         "roadRateOverride", roadOk ? roadRate : -1.0f);
 
+    /* The other half of the same tuning aid: CLUSTER_ROAD_CURVE=0.4 sets the
+     * exponent mapping speed onto scroll rate. Below 1 it expands the bottom of
+     * the range, which is where a linear map looks dead. */
+    bool curveOk = false;
+    const float roadCurve = qEnvironmentVariable("CLUSTER_ROAD_CURVE").toFloat(&curveOk);
+    engine.rootContext()->setContextProperty(
+        "roadCurveOverride", curveOk ? roadCurve : -1.0f);
+
     const QUrl url(QStringLiteral("qrc:/qt/qml/Cluster/Main.qml"));
     engine.load(url);
     if (engine.rootObjects().isEmpty())

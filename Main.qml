@@ -444,12 +444,25 @@ Window {
     // Overridable at run time with CLUSTER_ROAD_RATE so it can be dialled in on
     // the target instead of through a rebuild; see main.cpp.
     readonly property real roadRateMax: roadRateOverride > 0 ? roadRateOverride : 2.4
-    readonly property real roadRate: root.roadRateMax * live.speed / root.roadSpeedRef
+    // Speed maps onto scroll rate through a curve, not proportionally. A linear
+    // map gives a tenth of the scroll for a tenth of the throttle, and a tenth
+    // of 2.4 patterns/second is a road that has visibly stopped -- so the whole
+    // bottom of the range, which is where this motor actually spends its time,
+    // looked dead. The square root roughly doubles the rate at a sixth of full
+    // scale and leaves full scale exactly where it was.
+    //
+    // This does mean the road is no longer proportional to road speed. It is a
+    // motion cue rather than a readout -- the numerals and the ring are what
+    // report speed, and both are still linear.
+    readonly property real roadRateCurve: roadCurveOverride > 0 ? roadCurveOverride : 0.5
+    readonly property real roadRate: root.roadRateMax
+                                     * Math.pow(Math.max(0, live.speed / root.roadSpeedRef),
+                                                root.roadRateCurve)
 
     // Faded in over the bottom eighth of the scale, so a standstill leaves the
     // artwork exactly as it was and a crawl does not strobe. A fraction of the
     // scale rather than a fixed km/h, for the same reason as above.
-    readonly property real roadFadeSpeed: Vehicle.speedMax * 0.12
+    readonly property real roadFadeSpeed: Vehicle.speedMax * 0.05
     readonly property real roadMotionOpacity: Math.max(0, Math.min(1, live.speed / root.roadFadeSpeed)) * 0.34
 
     property real roadPhase: 0
