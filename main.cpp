@@ -37,6 +37,19 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(
         "fixedSpeed", speedOk ? fixedSpeed : -1.0f);
 
+    /* Tuning aid, in the same spirit as CLUSTER_SPEED: CLUSTER_ROAD_RATE=3.5
+     * overrides how fast the road scrolls at full scale, in pattern repeats per
+     * second. How fast a road should look is a judgement made against the panel
+     * it is on, and rebuilding and redeploying to try a number is a poor way to
+     * make it -- this way the value can be dialled in on the target and then
+     * written into roadRateMax once it is settled.
+     *
+     * Negative when unset or unparseable, which is how the QML detects it. */
+    bool roadOk = false;
+    const float roadRate = qEnvironmentVariable("CLUSTER_ROAD_RATE").toFloat(&roadOk);
+    engine.rootContext()->setContextProperty(
+        "roadRateOverride", roadOk ? roadRate : -1.0f);
+
     const QUrl url(QStringLiteral("qrc:/qt/qml/Cluster/Main.qml"));
     engine.load(url);
     if (engine.rootObjects().isEmpty())

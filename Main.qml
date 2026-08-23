@@ -438,7 +438,12 @@ Window {
     // for a different motor. Same reason scaleValues is generated from
     // Vehicle.speedMax instead of being a hardcoded 0..240.
     readonly property real roadSpeedRef: Vehicle.speedMax
-    readonly property real roadRateMax: 1.1       // patterns/second at full scale
+    // Patterns per second at full scale. 1.1 was about right physically -- six
+    // rungs a second at 60 km/h is already faster than real lane markings go by
+    // -- and looked sluggish on the panel, which is the judgement that counts.
+    // Overridable at run time with CLUSTER_ROAD_RATE so it can be dialled in on
+    // the target instead of through a rebuild; see main.cpp.
+    readonly property real roadRateMax: roadRateOverride > 0 ? roadRateOverride : 2.4
     readonly property real roadRate: root.roadRateMax * live.speed / root.roadSpeedRef
 
     // Faded in over the bottom eighth of the scale, so a standstill leaves the
