@@ -392,6 +392,135 @@ Window {
         }
     }
 
+    // --- Road motion ---------------------------------------------------------
+    // The lane in cluster_road.png is a still photograph of a road: two bright
+    // converging bars with faint rungs laddering the shoulders. Nothing in it
+    // moves, so at 140 km/h the cluster looked exactly as it does parked. These
+    // are rungs of the same kind, laid over the artwork and scrolled toward the
+    // viewer at a rate set by speed.
+    //
+    // The geometry is measured off the artwork, not invented, so the drawn rungs
+    // sit on the same lane the photograph shows. Tracking the brightest pixel of
+    // each bar down the image gives a straight convergence:
+    //
+    //     halfWidth(y) = roadHalfW0 + roadHalfWk * y     (fractions of artW)
+    //
+    // which reaches zero -- the vanishing point -- at roadHorizonY. Re-measure
+    // these three if the bezel artwork ever changes shape; tools/ has no script
+    // for it because it is three numbers off a straight-line fit.
+    readonly property real roadHorizonY: 0.5161   // where the lane converges
+    readonly property real roadHalfW0: -0.29679
+    readonly property real roadHalfWk: 0.57504
+    // The band the artwork's own bars actually occupy. Outside it there is no
+    // road to lay a rung on.
+    readonly property real roadNearY: 0.725
+    readonly property real roadFarY: 0.566
+    // Rungs ladder the SHOULDER, from each bar outward, never across the middle
+    // -- the same rule the overhead road follows, and the centre is where the
+    // car goes. 0.60 of the half-width is what the artwork's own rungs measure.
+    readonly property real roadShoulder: 0.60
+    readonly property int roadRungs: 6
+
+    // Perspective. On a ground plane the screen offset from the horizon goes as
+    // 1/distance, so rungs evenly spaced along the road are NOT evenly spaced
+    // down the screen -- they bunch toward the vanishing point. Spacing them
+    // evenly in y instead reads as a ladder being winched past, not as a road.
+    readonly property real roadZNear: 1 / (root.roadNearY - root.roadHorizonY)
+    readonly property real roadZFar: 1 / (root.roadFarY - root.roadHorizonY)
+
+    // Speed -> scroll. Proportional, with no cap: the ring saturates at the top
+    // of the scale and the road should not, or the last 100 km/h would look the
+    // same as the first.
+    readonly property real roadSpeedRef: 120      // km/h ...
+    readonly property real roadRateMax: 1.1       // ... at this many patterns/second
+    readonly property real roadRate: root.roadRateMax * live.speed / root.roadSpeedRef
+
+    // Faded in with speed, so at a standstill these do not exist and the artwork
+    // is exactly what it always was. Full by 8 km/h.
+    readonly property real roadMotionOpacity: Math.max(0, Math.min(1, live.speed / 8)) * 0.34
+
+    property real roadPhase: 0
+
+    // The car sits still while the road moves under it, which is correct for a
+    // chase camera -- but dead still reads as a photograph pasted on. This is a
+    // very small vertical tremor, amplitude in fractions of artUnitH, driven off
+    // the same phase so it costs no second timer and so its rate rises with
+    // speed the way the road's does. About 1.4px at the default; enough to be
+    // felt and not enough to be seen as bouncing. Set carShakeAmp to 0 to stop
+    // it without touching anything else.
+    readonly property real carShakeAmp: 0.0025
+    readonly property real carShakeHz: 3          // cycles per road pattern
+    readonly property real carShake: root.artUnitH * root.carShakeAmp
+                                     * Math.sin(root.roadPhase * 2 * Math.PI * root.carShakeHz)
+                                     * Math.max(0, Math.min(1, live.speed / 8))
+
+    // A phase accumulator rather than a looping NumberAnimation on purpose. An
+    // animation latches its duration for the whole loop, so a speed change would
+    // not be felt until the pattern came round again -- seconds, at low speed.
+    // Stops itself when stationary, so a parked cluster runs no timer at all.
+    Timer {
+        interval: 16
+        running: root.roadRate > 0 && !root.faultMode
+        repeat: true
+        onTriggered: root.roadPhase = (root.roadPhase + root.roadRate * (interval / 1000)) % 1
+    }
+
+    Item {
+        id: roadMotion
+        x: root.artX
+        y: root.artY
+        width: root.artW
+        height: root.artH
+        opacity: root.roadMotionOpacity
+        visible: opacity > 0 && !root.faultMode
+
+        Repeater {
+            model: root.roadRungs
+
+            delegate: Item {
+                required property int index
+
+                // Position along the band: 0 at the near end, 1 at the horizon.
+                // The wrap is what makes it a loop -- as the phase advances each
+                // rung walks toward the viewer and the one that runs off the
+                // bottom reappears at the vanishing point.
+                readonly property real t: (((index - root.roadPhase) % root.roadRungs)
+                                           + root.roadRungs) % root.roadRungs / root.roadRungs
+                // Not `z`: Item.z is the stacking order and is FINAL, so a
+                // property of that name here fails to load the whole component.
+                readonly property real dist: root.roadZNear
+                                             + t * (root.roadZFar - root.roadZNear)
+                readonly property real yFrac: root.roadHorizonY + 1 / dist
+                readonly property real halfW: root.roadHalfW0 + root.roadHalfWk * yFrac
+                readonly property real len: halfW * root.roadShoulder
+
+                // Faded at BOTH ends, and both are needed: a rung leaving at the
+                // bottom and one arriving at the horizon are the same rung one
+                // wrap apart, so a hard edge at either end reads as a pop.
+                readonly property real fade: Math.max(0, Math.min(1, t / 0.10))
+                                             * Math.max(0, Math.min(1, (1 - t) / 0.30))
+
+                anchors.fill: parent
+
+                Repeater {
+                    model: [-1, 1]
+
+                    delegate: Rectangle {
+                        readonly property real thick: Math.max(1, root.artUnitH * 0.020 * halfW)
+
+                        width: root.artW * len
+                        height: thick
+                        x: modelData < 0 ? root.artW * (0.5 - halfW - len)
+                                         : root.artW * (0.5 + halfW)
+                        y: root.artH * yFrac - height / 2
+                        color: root.topRoadColor
+                        opacity: fade
+                    }
+                }
+            }
+        }
+    }
+
     // --- Fault-mode road (overhead) ------------------------------------------
     // cluster_road.png seen from straight above, so swapping the two reads as the
     // camera moving rather than as a different scene. It crossfades against the
@@ -1436,7 +1565,7 @@ Window {
         height: root.artUnitH * root.carHeight
         width: height * (1220 / 915)            // the source's trimmed aspect
         x: root.artX + root.artW * 0.5 - width / 2
-        y: root.artY + root.artH * root.carY
+        y: root.artY + root.artH * root.carY + root.carShake
         fillMode: Image.PreserveAspectFit
         smooth: true
         mipmap: true
