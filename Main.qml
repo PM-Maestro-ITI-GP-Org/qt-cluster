@@ -838,8 +838,11 @@ Window {
     // A single linear ramp cannot match the scale: the labels are not evenly
     // spaced down the ring (0->40 covers 0.015 of the artwork, 80->120 covers
     // 0.11), so a linear fill runs well ahead of the numbers by mid-scale.
-    function glowEdgeFor(v) {
-        var vals = root.scaleValues;
+    // `vals` is the scale the value is read against -- scaleValues for the speed
+    // side, scaleValuesRight for the power side. It used to be hardwired to
+    // scaleValues, which is what made the right-hand arc a second speed gauge
+    // wearing watt labels.
+    function glowEdgeFor(v, vals) {
         var ys = root.glowY;
         var n = vals.length;
 
@@ -859,7 +862,20 @@ Window {
         return ys[n - 1] + slope * (v - vals[n - 1]);
     }
 
-    readonly property real glowEdge: glowEdgeFor(live.speed)
+    // Two edges, one per half of the ring.
+    //
+    // There was one, taken from speed and applied to the whole ring, so the
+    // right-hand arc lit to wherever SPEED had reached and then sat beside a
+    // column of watt labels. It agreed with the digital readout only while
+    // power happened to track speed proportionally -- which is true of the demo
+    // sweep, where power is synthesised from speed, and false of a real motor.
+    // The note on scaleValuesRight said as much and it was left standing.
+    //
+    // glowY is a table of positions fitted to the SHARED scale marks, so the
+    // same table serves both: the marks are at the same heights on both sides,
+    // only the numbers printed against them differ.
+    readonly property real glowEdge: glowEdgeFor(live.speed, root.scaleValues)
+    readonly property real glowEdgePower: glowEdgeFor(live.power, root.scaleValuesRight)
 
     // The neon ring, revealed bottom-up rather than faded: the lit part is at
     // full artwork brightness and the boundary climbs with speed.
@@ -881,7 +897,19 @@ Window {
         layer.enabled: true
     }
 
-    Rectangle {
+    // Split down the middle, one half per reading. Each half carries its own
+    // vertical ramp, so the speed arc and the power arc light to different
+    // heights and each one agrees with the numbers printed beside it.
+    //
+    // The seam costs nothing: the glow layer has no content at the centre at
+    // all -- measured, the centre column's energy is 0 against 12457 at the
+    // brightest column -- because the two arcs are separate and the car sits in
+    // the gap between them. A hard edge there has nothing to cut through.
+    //
+    // Still one MultiEffect. The mask is sampled per pixel, so two ramps in one
+    // mask image is all it takes; a second effect would have doubled the cost
+    // of the most expensive thing on the screen for nothing.
+    Item {
         id: glowMask
         x: root.artX
         y: root.artY
@@ -889,22 +917,39 @@ Window {
         height: root.artH
         visible: false
         layer.enabled: true
-        gradient: Gradient {
-            GradientStop {
-                position: 0.0
-                color: "transparent"
-            }
-            GradientStop {
-                position: Math.max(0, root.glowEdge - root.glowSoftness)
-                color: "transparent"
-            }
-            GradientStop {
-                position: Math.min(1, root.glowEdge + root.glowSoftness)
-                color: "white"
-            }
-            GradientStop {
-                position: 1.0
-                color: "white"
+
+        Repeater {
+            model: 2
+
+            delegate: Rectangle {
+                required property int index
+
+                // 0 is the speed side, 1 the power side.
+                readonly property real edge: index === 0 ? root.glowEdge
+                                                         : root.glowEdgePower
+
+                x: index === 0 ? 0 : glowMask.width / 2
+                width: glowMask.width / 2
+                height: glowMask.height
+
+                gradient: Gradient {
+                    GradientStop {
+                        position: 0.0
+                        color: "transparent"
+                    }
+                    GradientStop {
+                        position: Math.max(0, edge - root.glowSoftness)
+                        color: "transparent"
+                    }
+                    GradientStop {
+                        position: Math.min(1, edge + root.glowSoftness)
+                        color: "white"
+                    }
+                    GradientStop {
+                        position: 1.0
+                        color: "white"
+                    }
+                }
             }
         }
     }
